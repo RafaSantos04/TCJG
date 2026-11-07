@@ -253,6 +253,34 @@ de conflito sob a mesma chave.
 | `ALREADY_REVERSED`            | Referência já revertida pelo mesmo tipo            | Não reenviar                          |
 | `INTERNAL_FAILURE`            | Falha permanente de infraestrutura                 | Contatar suporte                      |
 
+## Persistência financeira e constraints
+
+O schema financeiro é criado por uma migration explícita e reversível. Ela
+define as tabelas `wallets`, `wager_transactions`, `wallet_ledger_entries`,
+`inbox_messages` e `outbox_messages`; sincronização automática de schema
+permanece desativada.
+
+As entidades de persistência são separadas dos aggregates de domínio. Valores
+`numeric(20,2)` chegam do PostgreSQL como `string` e os mappers os convertem
+explicitamente com `Money.from`, evitando perda de precisão por `number`.
+
+As invariantes que também precisam resistir a concorrência ou escrita direta
+são reforçadas no PostgreSQL:
+
+- uma wallet por jogador e moeda, saldo não negativo e versão válida;
+- unicidade por transação externa do provider e por chave de idempotência;
+- tipos, estados, códigos de falha e referências obrigatórias de transações;
+- apenas uma reversão `PROCESSED` de cada tipo por transação de referência;
+- aritmética do ledger validada por `CHECK` e registros append-only protegidos
+  por trigger contra `UPDATE` e `DELETE`;
+- chave composta do inbox para deduplicação e índice parcial do outbox pendente.
+
+`attempts` e `next_attempt_at` pertencem à persistência e serão controlados
+pelos casos de uso de retry, sem contaminar a máquina de estados do domínio.
+A suíte de integração usa um schema aleatório, testa `up/down/up` e provoca
+violações de cada constraint. Esta fase ainda não expõe endpoints; os testes via
+Postman começam quando controllers e casos de uso forem conectados.
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.

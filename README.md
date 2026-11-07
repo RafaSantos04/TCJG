@@ -108,10 +108,12 @@ Os testes E2E substituem apenas o módulo de banco por um módulo vazio. Assim,
 eles exercitam o bootstrap, o controller e o `NodeAdapter` sem exigir um
 PostgreSQL externo.
 
-O teste de integração executa o Vitest explicitamente no runtime Bun e usa um
-PostgreSQL real. Ele cria uma tabela temporária dentro de uma transação,
-persiste e recarrega uma entidade decorada pelo MikroORM e remove a tabela
-automaticamente ao concluir. Use `TEST_DATABASE_URL` para selecionar o banco.
+Os testes de integração executam o Vitest explicitamente no runtime Bun e usam
+um PostgreSQL real. Além do teste básico de persistência com MikroORM, a suíte
+financeira cria um schema isolado, executa o ciclo `up/down/up` da migration e
+valida as constraints de unicidade, saldo, referências, reversões e ledger
+append-only. O schema de teste é removido ao concluir. Use `TEST_DATABASE_URL`
+para selecionar o banco.
 
 ## Migrations
 
@@ -127,6 +129,10 @@ bun run migration:down
 ```
 
 Os comandos de migration exigem o PostgreSQL ativo e usam `DATABASE_URL`.
+A migration inicial cria `wallets`, `wager_transactions`,
+`wallet_ledger_entries`, `inbox_messages` e `outbox_messages`. Valores
+monetários são persistidos como `numeric(20,2)` e convertidos entre `string` e
+o value object `Money` pelos mappers da infraestrutura.
 
 ## Estrutura
 

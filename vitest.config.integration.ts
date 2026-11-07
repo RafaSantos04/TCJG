@@ -7,7 +7,7 @@ export default defineConfig({
     root: './',
     include: ['test/integration/**/*.integration.ts'],
     fileParallelism: false,
-    testTimeout: 15_000,
-    hookTimeout: 15_000,
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });
