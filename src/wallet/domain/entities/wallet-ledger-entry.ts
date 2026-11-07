@@ -19,6 +19,8 @@ export type CreateWalletLedgerEntry = Readonly<{
   createdAt: Date;
 }>;
 
+export type RehydrateWalletLedgerEntry = CreateWalletLedgerEntry;
+
 export class WalletLedgerEntry {
   private readonly createdAtValue: Date;
 
@@ -63,6 +65,18 @@ export class WalletLedgerEntry {
     }
 
     return entry;
+  }
+
+  static rehydrate(input: RehydrateWalletLedgerEntry): WalletLedgerEntry {
+    return new WalletLedgerEntry(
+      input.walletId,
+      input.transactionId,
+      input.direction,
+      input.money,
+      input.balanceBefore,
+      input.balanceAfter,
+      input.createdAt,
+    );
   }
 
   get createdAt(): Date {

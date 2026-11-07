@@ -175,8 +175,17 @@ como novo `updatedAt`.
 `WalletLedgerEntry` contém apenas dados imutáveis: wallet, transação, direção,
 valor, saldos anterior e posterior e data de criação. Sua factory rejeita valor
 não positivo, saldos negativos, moedas divergentes e aritmética incompatível
-com a direção. A persistência, constraints e proteção contra `UPDATE`/`DELETE`
-serão adicionadas na fase de banco de dados.
+com a direção. A factory `rehydrate` recompõe exatamente o lançamento persistido
+sem repetir essas validações de transição; inconsistências continuam observáveis
+por `isBalanced` e serão tratadas pela reconciliação. A persistência, constraints
+e proteção contra `UPDATE`/`DELETE` serão adicionadas na fase de banco de dados.
+
+O lançamento não possui um identificador de negócio adicional no domínio: o par
+`walletId + transactionId` expressa a identidade e a regra de no máximo um
+lançamento por transação e wallet. Na persistência, a Fase 6 adicionará `seq`
+como chave técnica e cursor estável, além da constraint única sobre esse par.
+Isso evita introduzir geração de identificadores dentro do aggregate sem perder
+nenhuma garantia exigida pelo enunciado.
 
 ## Convenções
 

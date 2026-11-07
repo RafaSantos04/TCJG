@@ -9,6 +9,12 @@ import {
 const createdAt = new Date('2026-11-07T12:00:00.000Z');
 
 describe('WalletLedgerEntry', () => {
+  it('exposes no transition methods', () => {
+    expect(
+      Object.getOwnPropertyNames(WalletLedgerEntry.prototype).sort(),
+    ).toEqual(['constructor', 'createdAt', 'isBalanced'].sort());
+  });
+
   it.each([
     {
       direction: WalletLedgerDirection.CREDIT,
@@ -50,6 +56,21 @@ describe('WalletLedgerEntry', () => {
         createdAt,
       }),
     ).toThrow(InvalidLedgerEntryError);
+  });
+
+  it('rehydrates persisted state without revalidating its transition', () => {
+    const entry = WalletLedgerEntry.rehydrate({
+      walletId: 'wallet-1',
+      transactionId: 'transaction-1',
+      direction: WalletLedgerDirection.DEBIT,
+      money: Money.from('5.00', 'BRL'),
+      balanceBefore: Money.from('10.00', 'BRL'),
+      balanceAfter: Money.from('15.00', 'BRL'),
+      createdAt,
+    });
+
+    expect(entry.balanceAfter.amount).toBe('15.00');
+    expect(entry.isBalanced()).toBe(false);
   });
 
   it('rejects negative balances', () => {
