@@ -106,7 +106,10 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
       initialBalance: { amount, currency: 'BRL' },
     });
 
-    expect(response.status).toBe(201);
+    expect(
+      response.status,
+      `POST /wallets returned ${response.status}: ${JSON.stringify(response.body)}`,
+    ).toBe(201);
     return response.body;
   };
 
@@ -164,8 +167,14 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
       walletRequest,
     );
 
-    expect(first.status).toBe(201);
-    expect(duplicate.status).toBe(409);
+    expect(
+      first.status,
+      `POST /wallets returned ${first.status}: ${JSON.stringify(first.body)}`,
+    ).toBe(201);
+    expect(
+      duplicate.status,
+      `duplicate POST /wallets returned ${duplicate.status}: ${JSON.stringify(duplicate.body)}`,
+    ).toBe(409);
     await expectWalletMatchesLedger(first.body.id);
   });
 

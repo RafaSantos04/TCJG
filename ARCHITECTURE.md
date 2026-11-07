@@ -338,6 +338,20 @@ Uma wallet com saldo inicial nasce em versão `1`, junto de uma transação inte
 mutação posterior à criação. A constraint de jogador e moeda converte criação
 duplicada em `409`.
 
+### SOLID aplicado de forma pragmática
+
+Esta fatia possui dois casos de uso: `CreateWallet` e
+`ProcessWagerTransaction`. Cada um tem uma responsabilidade de aplicação; os
+controllers cuidam do contrato HTTP, os aggregates das invariantes e o adapter
+da persistência. Isso aplica SRP sem criar uma classe para cada instrução.
+
+Os casos de uso dependem de `FinancialTransactionPort`, e o MikroORM implementa
+essa porta na composição do NestJS (DIP). Outro adapter pode substituí-lo sem
+alterar a regra financeira (OCP/LSP). O `FinancialTransactionContext` reúne
+somente operações que precisam participar da mesma transação SQL; dividi-lo em
+interfaces menores agora fragmentaria uma unidade atômica coesa, portanto não
+forçamos ISP além do que o fluxo realmente consome.
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.

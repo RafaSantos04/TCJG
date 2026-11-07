@@ -41,9 +41,16 @@ export class MikroOrmFinancialTransactionAdapter implements FinancialTransaction
     try {
       return await this.entityManager.transactional(
         async (transactionalEntityManager) => {
+          const transactionContext =
+            transactionalEntityManager.getTransactionContext();
           await transactionalEntityManager
             .getConnection()
-            .execute(`set local lock_timeout = '5s'`, [], 'run');
+            .execute(
+              `set local lock_timeout = '5s'`,
+              [],
+              'run',
+              transactionContext,
+            );
 
           return work(
             new MikroOrmFinancialTransactionContext(transactionalEntityManager),
