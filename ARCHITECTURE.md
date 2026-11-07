@@ -149,6 +149,35 @@ atrás de um simples `false`.
 { "amount": "25.00", "currency": "BRL" }
 ```
 
+## Wallet Aggregate e ledger de domínio
+
+`Wallet` é o Aggregate Root responsável por saldo, moeda, versão e datas de
+alteração. O construtor é privado: `open` cria uma wallet com saldo zero e
+versão 1, enquanto `rehydrate` recompõe exatamente o estado confiável vindo da
+persistência, sem reexecutar transições de negócio.
+
+Saldo inicial positivo não é argumento de `open`. Na fase de aplicação, ele
+será representado por uma transação interna `OPENING` e por um crédito na mesma
+transação SQL. Dessa forma, nenhum saldo nasce sem uma explicação no ledger.
+
+`credit` e `debit` aceitam apenas `Money` positivo e da moeda da wallet. Valor
+zero ou negativo é rejeitado porque o contrato sempre retorna um lançamento e
+o ledger não admite lançamentos sem efeito. Uma rejeição não altera saldo,
+versão nem `updatedAt`. Débito que produziria saldo negativo lança
+`InsufficientFundsError`.
+
+Cada operação calcula `balanceBefore` e `balanceAfter`, cria e valida um
+`WalletLedgerEntry` e somente depois aplica a mudança ao aggregate. Assim, uma
+falha na criação do lançamento não deixa a wallet parcialmente alterada. Uma
+operação válida incrementa `version` uma única vez e usa o instante recebido
+como novo `updatedAt`.
+
+`WalletLedgerEntry` contém apenas dados imutáveis: wallet, transação, direção,
+valor, saldos anterior e posterior e data de criação. Sua factory rejeita valor
+não positivo, saldos negativos, moedas divergentes e aritmética incompatível
+com a direção. A persistência, constraints e proteção contra `UPDATE`/`DELETE`
+serão adicionadas na fase de banco de dados.
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.
