@@ -37,7 +37,7 @@ describe('MikroORM on Bun', () => {
 
     try {
       await orm.em.transactional(async (entityManager) => {
-        await entityManager.getConnection().execute(`
+        await entityManager.execute(`
           create temporary table "phase_one_persistence_probe" (
             "id" varchar(255) not null,
             "value" varchar(255) not null,
