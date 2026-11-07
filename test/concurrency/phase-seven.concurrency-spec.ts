@@ -3,12 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { Migrator } from '@mikro-orm/migrations';
 import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
-import { InboxMessageEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/inbox-message.entity.js';
-import { OutboxMessageEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/outbox-message.entity.js';
-import { WagerTransactionEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/wager-transaction.entity.js';
-import { WalletLedgerEntryEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/wallet-ledger-entry.entity.js';
-import { WalletEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/wallet.entity.js';
 import { Migration20261107160000InitialFinancialSchema } from '../../src/infrastructure/persistence/mikro-orm/migrations/Migration20261107160000InitialFinancialSchema.js';
+import { financialEntities } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm.options.js';
 
 type WalletResponse = Readonly<{
   id: string;
@@ -43,14 +39,6 @@ const apiUrls = (
   .split(',')
   .map((url) => url.trim().replace(/\/$/, ''));
 
-const entities = [
-  WalletEntity,
-  WagerTransactionEntity,
-  WalletLedgerEntryEntity,
-  InboxMessageEntity,
-  OutboxMessageEntity,
-];
-
 async function post<T>(
   baseUrl: string,
   path: string,
@@ -81,7 +69,7 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
       clientUrl:
         process.env.TEST_DATABASE_URL ??
         'postgresql://tcjg:tcjg@127.0.0.1:5433/tcjg',
-      entities,
+      entities: financialEntities,
       metadataProvider: ReflectMetadataProvider,
       extensions: [Migrator],
       pool: { min: 1, max: 5 },

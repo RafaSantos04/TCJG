@@ -4,24 +4,12 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { Migrator } from '@mikro-orm/migrations';
 import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { MikroOrmFinancialTransactionAdapter } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm-financial-transaction.adapter.js';
-import { InboxMessageEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/inbox-message.entity.js';
-import { OutboxMessageEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/outbox-message.entity.js';
-import { WagerTransactionEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/wager-transaction.entity.js';
-import { WalletLedgerEntryEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/wallet-ledger-entry.entity.js';
-import { WalletEntity } from '../../src/infrastructure/persistence/mikro-orm/entities/wallet.entity.js';
 import { Migration20261107160000InitialFinancialSchema } from '../../src/infrastructure/persistence/mikro-orm/migrations/Migration20261107160000InitialFinancialSchema.js';
+import { financialEntities } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm.options.js';
 import { CreateWallet } from '../../src/wallet/application/create-wallet.js';
 import { WalletAlreadyExistsError } from '../../src/wallet/application/errors/wallet-already-exists.error.js';
 import { IdempotencyConflictError } from '../../src/wagering/application/errors/idempotency-conflict.error.js';
 import { ProcessWagerTransaction } from '../../src/wagering/application/process-wager-transaction.js';
-
-const entities = [
-  WalletEntity,
-  WagerTransactionEntity,
-  WalletLedgerEntryEntity,
-  InboxMessageEntity,
-  OutboxMessageEntity,
-];
 
 describe.sequential('financial application with PostgreSQL', () => {
   const schema = `phase_seven_${randomUUID().replaceAll('-', '')}`;
@@ -36,7 +24,7 @@ describe.sequential('financial application with PostgreSQL', () => {
         process.env.TEST_DATABASE_URL ??
         'postgresql://tcjg:tcjg@127.0.0.1:5433/tcjg',
       schema,
-      entities,
+      entities: financialEntities,
       metadataProvider: ReflectMetadataProvider,
       extensions: [Migrator],
       pool: { min: 1, max: 10 },
