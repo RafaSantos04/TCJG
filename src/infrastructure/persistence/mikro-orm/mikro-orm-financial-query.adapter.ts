@@ -21,26 +21,27 @@ import { WalletEntity } from './entities/wallet.entity.js';
 
 @Injectable()
 export class MikroOrmFinancialQueryAdapter implements FinancialQueryPort {
-  constructor(private readonly entityManager: EntityManager) {}
+  constructor(private readonly entityManager: EntityManager) { }
 
   async findWallet(walletId: string): Promise<WalletReadModel | undefined> {
+    const em = this.entityManager.fork();
     return this.query(async () => {
-      const entity = await this.entityManager.findOne(WalletEntity, {
+      const entity = await em.findOne(WalletEntity, {
         id: walletId,
       });
 
       return entity
         ? Object.freeze({
-            id: entity.id,
-            playerId: entity.playerId,
-            balance: {
-              amount: entity.balance,
-              currency: entity.currency.trim(),
-            },
-            version: entity.version,
-            createdAt: entity.createdAt,
-            updatedAt: entity.updatedAt,
-          })
+          id: entity.id,
+          playerId: entity.playerId,
+          balance: {
+            amount: entity.balance,
+            currency: entity.currency.trim(),
+          },
+          version: entity.version,
+          createdAt: entity.createdAt,
+          updatedAt: entity.updatedAt,
+        })
         : undefined;
     });
   }
@@ -143,9 +144,9 @@ export class MikroOrmFinancialQueryAdapter implements FinancialQueryPort {
         entity.balanceAfter === undefined
           ? undefined
           : {
-              amount: entity.balanceAfter,
-              currency: entity.currency.trim(),
-            },
+            amount: entity.balanceAfter,
+            currency: entity.currency.trim(),
+          },
       createdAt: entity.createdAt,
       processedAt: entity.processedAt,
     });
