@@ -187,6 +187,72 @@ como chave técnica e cursor estável, além da constraint única sobre esse par
 Isso evita introduzir geração de identificadores dentro do aggregate sem perder
 nenhuma garantia exigida pelo enunciado.
 
+## WagerTransaction e máquina de estados
+
+`WagerTransaction.create` sempre inicia em `PENDING`. `REFUND` e `ROLLBACK`
+exigem o identificador externo da referência já na criação; a resolução para o
+identificador interno ocorre antes de `markProcessed`. `rehydrate` recompõe o
+estado persistido sem repetir regras de transição.
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> PENDING_REFERENCE
+    PENDING --> PROCESSED
+    PENDING --> REJECTED
+    PENDING --> FAILED
+    PENDING_REFERENCE --> PROCESSED
+    PENDING_REFERENCE --> REJECTED
+    PENDING_REFERENCE --> FAILED
+    PROCESSED --> [*]
+    REJECTED --> [*]
+    FAILED --> [*]
+```
+
+`PROCESSED`, `REJECTED` e `FAILED` são terminais. Qualquer tentativa de sair
+deles lança `InvalidTransactionStateError`, sinalizando erro de programação.
+`PENDING_REFERENCE` não pode transicionar novamente para si próprio.
+
+`affectsBalance` combina kind e estado: `LOSS`, `REJECTED` e `FAILED` nunca
+afetam saldo nem expõem direção de ledger. `BET` gera `DEBIT`; `WIN`, `REFUND`
+e `OPENING` geram `CREDIT`. O `ROLLBACK` inverte a referência: `BET` vira
+`CREDIT`, enquanto `WIN` e `REFUND` viram `DEBIT`. Referências a `LOSS`,
+`OPENING` ou outro `ROLLBACK` são inválidas.
+
+`OPENING` existe no domínio para o crédito interno de abertura, mas não é um
+kind aceito pela política de entrada externa. Controllers e consumidores devem
+usar `parseExternalWagerTransactionKind` antes de criar a transação. Assim o
+domínio suporta o caso interno sem permitir que API ou fila o forjem.
+
+### Hash canônico e idempotência
+
+O `payloadHash` é SHA-256 hexadecimal do JSON canônico: chaves ordenadas
+recursivamente, sem espaços e com propriedades `undefined` omitidas. Participam
+somente `providerId`, `externalTransactionId`, `playerId`, `walletId`, `roundId`,
+`gameId`, `kind`, `money { amount, currency }` e, quando presente,
+`referenceExternalTransactionId`.
+
+Identificador interno, `Idempotency-Key`, datas e metadados de transporte não
+entram no hash. A chave identifica a tentativa; o hash distingue replay idêntico
+de conflito sob a mesma chave.
+
+### Taxonomia de failureCode
+
+| Código                        | Situação                                           | Orientação ao provedor                |
+| ----------------------------- | -------------------------------------------------- | ------------------------------------- |
+| `INSUFFICIENT_FUNDS`          | BET sem saldo                                      | Não reenviar                          |
+| `REVERSAL_INSUFFICIENT_FUNDS` | Reversão deixaria saldo negativo                   | Não reenviar; tratar operacionalmente |
+| `CURRENCY_MISMATCH`           | Moeda diferente da wallet                          | Corrigir o payload                    |
+| `WALLET_NOT_FOUND`            | Wallet inexistente                                 | Corrigir o payload                    |
+| `PLAYER_WALLET_MISMATCH`      | Wallet pertence a outro player                     | Corrigir o payload                    |
+| `REFERENCE_NOT_FOUND`         | Referência não chegou dentro do limite             | Não reenviar                          |
+| `REFERENCE_MISMATCH`          | Provider, player, wallet, moeda ou rodada divergem | Corrigir o payload                    |
+| `INVALID_REFERENCE_KIND`      | Tipo de referência não permitido                   | Corrigir o payload                    |
+| `INVALID_REFERENCE_STATE`     | Referência não está `PROCESSED`                    | Não reenviar                          |
+| `AMOUNT_MISMATCH`             | Valor diferente da referência                      | Corrigir o payload                    |
+| `ALREADY_REVERSED`            | Referência já revertida pelo mesmo tipo            | Não reenviar                          |
+| `INTERNAL_FAILURE`            | Falha permanente de infraestrutura                 | Contatar suporte                      |
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.
