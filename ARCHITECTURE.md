@@ -108,6 +108,11 @@ cria `wager-transactions.fifo`, `wager-transactions-dlq.fifo` e
 `maxReceiveCount=5`. A API só inicia depois que esse container termina com
 sucesso.
 
+A imagem está fixada em `localstack/localstack:4.14.0`. As imagens calendarizadas
+de 2026 passaram a exigir autenticação e encerram com código 55 sem um token.
+Como o desafio usa somente SQS local, manter a última versão comunitária evita
+uma dependência externa de conta/licença e torna o setup reproduzível.
+
 A publicação de portas usa o intervalo 3000–3002, permitindo validar três
 réplicas com `docker compose up --scale api=3`. Isso prova que a aplicação não
 depende de estado mantido em um único processo.

@@ -57,14 +57,14 @@ services:
     restart: unless-stopped
 
   localstack:
-    image: localstack/localstack:2026.10.6
+    image: localstack/localstack:4.14.0
     environment:
       SERVICES: sqs
       AWS_DEFAULT_REGION: us-east-1
     ports:
       - '4566:4566'
     volumes:
-      - localstack-data:/var/lib/localstack
+      - localstack-data-v4:/var/lib/localstack
     healthcheck:
       test:
         [
@@ -78,7 +78,7 @@ services:
     restart: unless-stopped
 
   localstack-init:
-    image: localstack/localstack:2026.10.6
+    image: localstack/localstack:4.14.0
     entrypoint: ['python', '/init/init_aws.py']
     environment:
       AWS_DEFAULT_REGION: us-east-1
@@ -94,4 +94,4 @@ services:
 
 volumes:
   postgres-data:
-  localstack-data:
+  localstack-data-v4:

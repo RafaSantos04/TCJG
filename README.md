@@ -26,6 +26,10 @@ de mensagens.
 bun install --frozen-lockfile
 ```
 
+Esse comando também instala as dependências de desenvolvimento necessárias aos
+testes. Execute-o no host antes de `test:unit`, `test:integration` ou
+`test:concurrency`; construir a imagem Docker não instala dependências no host.
+
 Copie `.env.example` para `.env` antes de executar a API fora do Docker. O
 arquivo `.env` não é versionado.
 
@@ -48,6 +52,10 @@ O container de inicialização cria automaticamente:
 - `wallet-events.fifo`
 
 `wager-transactions.fifo` usa a DLQ com `maxReceiveCount=5`.
+
+O LocalStack está fixado em `4.14.0`, a última linha comunitária anterior à
+exigência de conta das imagens 2026. O projeto precisa apenas do SQS local e não
+depende de recursos licenciados.
 
 Para validar três instâncias da API, o Compose reserva as portas 3000–3002:
 
