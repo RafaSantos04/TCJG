@@ -278,8 +278,65 @@ são reforçadas no PostgreSQL:
 `attempts` e `next_attempt_at` pertencem à persistência e serão controlados
 pelos casos de uso de retry, sem contaminar a máquina de estados do domínio.
 A suíte de integração usa um schema aleatório, testa `up/down/up` e provoca
-violações de cada constraint. Esta fase ainda não expõe endpoints; os testes via
-Postman começam quando controllers e casos de uso forem conectados.
+violações de cada constraint. A Fase 7 conecta esse schema aos primeiros
+endpoints financeiros.
+
+## Fatia vertical financeira e concorrência
+
+`CreateWallet` e `ProcessWagerTransaction` dependem da porta
+`FinancialTransactionPort`, não do MikroORM. O adapter abre uma transação SQL e
+entrega um `FinancialTransactionContext` ao caso de uso. Esse contexto poderá
+ser reutilizado pelo consumidor SQS para incluir o inbox na mesma transação sem
+duplicar a regra financeira.
+
+### Lock pessimista por wallet
+
+Depois da verificação inicial de idempotência, o adapter executa
+`SELECT ... FOR UPDATE` somente na wallet afetada e configura
+`SET LOCAL lock_timeout = '5s'`. Escolhemos lock pessimista porque o lançamento
+precisa do `balanceBefore` exato e porque a sequência leitura, regra de domínio,
+wallet e ledger fica simples de auditar. A contenção é local à wallet: operações
+em wallets distintas continuam paralelas.
+
+Não usamos optimistic retry como mecanismo principal porque ele repetiria toda
+a regra e aumentaria a chance de contenção numa hot wallet. Ainda assim, o
+`UPDATE wallets ... WHERE id = ? AND version = ?` funciona como defesa em
+profundidade. Os `CHECK`s do banco impedem saldo negativo mesmo diante de uma
+falha de aplicação. Timeout de lock e deadlock são falhas transitórias e viram
+HTTP `503` com `Retry-After`.
+
+### Idempotência e atomicidade
+
+A chave do header é persistida e o hash considera somente o payload financeiro
+canônico. Hash igual devolve `balance_after`, que preserva o saldo observado na
+primeira execução; hash diferente gera `409`. Se duas instâncias passam juntas
+pela leitura inicial, a constraint decide a corrida com `23505`: a transação
+perdedora faz rollback, abre uma nova transação e relê o resultado vencedor.
+
+O `@nestjs/idempotency` foi avaliado, mas não é usado nesta operação financeira.
+O desafio exige que chave, `payload_hash`, resultado, `balance_after` e a
+constraint concorrente pertençam ao próprio `wager_transactions` e à mesma
+transação do saldo. Um interceptor com um segundo armazenamento de recibos
+criaria outra fronteira transacional e duas fontes de verdade. O controller
+valida a presença do header; o caso de uso e o PostgreSQL continuam sendo a
+garantia definitiva.
+
+Wallet, wager transaction, ledger e mensagens de outbox são gravados na mesma
+transação SQL. `BET` debita, `WIN` credita e `LOSS` não altera saldo nem gera
+ledger. Saldo insuficiente é persistido como `REJECTED/INSUFFICIENT_FUNDS`, sem
+lançamento. Eventos são apenas enfileirados na outbox; a publicação pertence à
+fase do worker.
+
+O `@nestjs/outbox` também foi avaliado. Ele administra schema, tabelas e ciclo de
+dead-letter próprios, enquanto o desafio prescreve `outbox_messages`, suas
+colunas, o índice parcial e o algoritmo `FOR UPDATE SKIP LOCKED`. Mantemos a
+porta e o schema exigidos pelo desafio; o worker específico será conectado na
+fase de outbox sem trocar o contrato persistido nesta fatia.
+
+Uma wallet com saldo inicial nasce em versão `1`, junto de uma transação interna
+`OPENING` e um lançamento `CREDIT`. Isso representa o estado inicial, não uma
+mutação posterior à criação. A constraint de jogador e moeda converte criação
+duplicada em `409`.
 
 ## Convenções
 
@@ -294,6 +351,5 @@ Postman começam quando controllers e casos de uso forem conectados.
 
 ## Próximas fases
 
-`Money` está concluído. A próxima implementação é o aggregate `Wallet`, que usa
-o value object para proteger saldo, moeda e versão sem depender de PostgreSQL,
-MikroORM ou NestJS.
+A próxima fase completa as consultas HTTP, paginação do ledger, autenticação
+extensível e o mapeamento global de status e erros.

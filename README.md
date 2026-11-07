@@ -61,6 +61,7 @@ Para validar três instâncias da API, o Compose reserva as portas 3000–3002:
 
 ```bash
 docker compose up --build --scale api=3 -d
+bun run migration:up
 docker compose ps
 ```
 
@@ -92,6 +93,42 @@ bun run build
 bun run start:prod
 ```
 
+## Primeiros endpoints financeiros
+
+Com o PostgreSQL ativo e a migration aplicada, a Fase 7 permite criar uma
+wallet e processar `BET`, `WIN` e `LOSS`:
+
+```http
+POST /wallets
+Content-Type: application/json
+
+{
+  "playerId": "0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1",
+  "initialBalance": { "amount": "100.00", "currency": "BRL" }
+}
+```
+
+```http
+POST /wagering/transactions
+Content-Type: application/json
+Idempotency-Key: provider-a:transaction-123
+
+{
+  "providerId": "provider-a",
+  "externalTransactionId": "transaction-123",
+  "playerId": "0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1",
+  "walletId": "<id retornado pela criação>",
+  "roundId": "round-987",
+  "gameId": "fortune-chimp",
+  "kind": "BET",
+  "money": { "amount": "25.00", "currency": "BRL" }
+}
+```
+
+Repetir o segundo request com a mesma chave e payload devolve a resposta
+persistida com `idempotentReplay: true`. Reutilizar a chave com outro payload
+devolve `409`.
+
 ## Qualidade
 
 ```bash
@@ -114,6 +151,18 @@ financeira cria um schema isolado, executa o ciclo `up/down/up` da migration e
 valida as constraints de unicidade, saldo, referências, reversões e ledger
 append-only. O schema de teste é removido ao concluir. Use `TEST_DATABASE_URL`
 para selecionar o banco.
+
+Os testes de concorrência usam PostgreSQL real e distribuem HTTP entre as três
+instâncias do Compose. Execute-os depois de reconstruir e subir a API:
+
+```bash
+bun run infra:up:scaled
+bun run migration:up
+bun run test:concurrency
+```
+
+As URLs podem ser substituídas por `CONCURRENCY_API_URLS` e o banco por
+`TEST_DATABASE_URL`.
 
 ## Migrations
 

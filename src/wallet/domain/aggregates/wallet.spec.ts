@@ -19,6 +19,25 @@ function openWallet(): Wallet {
 }
 
 describe('Wallet', () => {
+  it('opens with an initial balance at version one and returns its opening ledger entry', () => {
+    const opened = Wallet.openWithInitialBalance({
+      id: 'wallet-opening',
+      playerId: 'player-opening',
+      initialBalance: Money.from('100.00', 'BRL'),
+      openingTransactionId: 'transaction-opening',
+      at: new Date('2026-11-07T18:00:00.000Z'),
+    });
+
+    expect(opened.wallet.balance.toJSON()).toEqual({
+      amount: '100.00',
+      currency: 'BRL',
+    });
+    expect(opened.wallet.version).toBe(1);
+    expect(opened.ledgerEntry.direction).toBe(WalletLedgerDirection.CREDIT);
+    expect(opened.ledgerEntry.balanceBefore.amount).toBe('0.00');
+    expect(opened.ledgerEntry.balanceAfter.amount).toBe('100.00');
+  });
+
   it('opens with zero balance, version one and encapsulated timestamps', () => {
     const inputDate = new Date(openedAt);
     const wallet = Wallet.open({

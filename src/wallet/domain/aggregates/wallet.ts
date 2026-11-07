@@ -13,6 +13,17 @@ export type OpenWallet = Readonly<{
   at: Date;
 }>;
 
+export type OpenWalletWithInitialBalance = Omit<OpenWallet, 'currency'> &
+  Readonly<{
+    initialBalance: Money;
+    openingTransactionId: string;
+  }>;
+
+export type OpenedWalletWithLedger = Readonly<{
+  wallet: Wallet;
+  ledgerEntry: WalletLedgerEntry;
+}>;
+
 export type RehydrateWallet = Readonly<{
   id: string;
   playerId: string;
@@ -53,6 +64,36 @@ export class Wallet {
       openedAt,
       openedAt,
     );
+  }
+
+  static openWithInitialBalance(
+    input: OpenWalletWithInitialBalance,
+  ): OpenedWalletWithLedger {
+    if (!input.initialBalance.isPositive()) {
+      throw new InvalidWalletAmountError(input.initialBalance);
+    }
+
+    const openedAt = new Date(input.at.getTime());
+    const balanceBefore = Money.zero(input.initialBalance.currency);
+    const wallet = new Wallet(
+      input.id,
+      input.playerId,
+      input.initialBalance,
+      1,
+      openedAt,
+      openedAt,
+    );
+    const ledgerEntry = WalletLedgerEntry.create({
+      walletId: input.id,
+      transactionId: input.openingTransactionId,
+      direction: WalletLedgerDirection.CREDIT,
+      money: input.initialBalance,
+      balanceBefore,
+      balanceAfter: input.initialBalance,
+      createdAt: openedAt,
+    });
+
+    return Object.freeze({ wallet, ledgerEntry });
   }
 
   static rehydrate(input: RehydrateWallet): Wallet {
