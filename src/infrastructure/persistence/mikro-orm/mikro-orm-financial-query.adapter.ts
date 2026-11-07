@@ -51,8 +51,9 @@ export class MikroOrmFinancialQueryAdapter implements FinancialQueryPort {
     afterSequence: string | undefined,
     limit: number,
   ): Promise<readonly WalletLedgerEntryReadModel[]> {
+    const em = this.entityManager.fork();
     return this.query(async () => {
-      const entities = await this.entityManager.find(
+      const entities = await em.find(
         WalletLedgerEntryEntity,
         {
           walletId,
@@ -88,8 +89,9 @@ export class MikroOrmFinancialQueryAdapter implements FinancialQueryPort {
   async findWagerById(
     transactionId: string,
   ): Promise<WagerTransactionReadModel | undefined> {
+    const em = this.entityManager.fork();
     return this.query(async () => {
-      const entity = await this.entityManager.findOne(WagerTransactionEntity, {
+      const entity = await em.findOne(WagerTransactionEntity, {
         id: transactionId,
       });
       return entity ? this.toWager(entity) : undefined;
@@ -100,8 +102,9 @@ export class MikroOrmFinancialQueryAdapter implements FinancialQueryPort {
     providerId: string,
     externalTransactionId: string,
   ): Promise<WagerTransactionReadModel | undefined> {
+    const em = this.entityManager.fork();
     return this.query(async () => {
-      const entity = await this.entityManager.findOne(WagerTransactionEntity, {
+      const entity = await em.findOne(WagerTransactionEntity, {
         providerId,
         externalTransactionId,
       });
