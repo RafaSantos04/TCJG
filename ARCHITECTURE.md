@@ -102,8 +102,23 @@ O ambiente integrado contém API, PostgreSQL e LocalStack. Health checks e
 melhora a experiência local, mas a aplicação ainda deverá tratar falhas
 transitórias em produção.
 
-O LocalStack inicia apenas o serviço SQS. As filas FIFO, DLQ e políticas de
-redrive serão adicionadas na fase específica de mensageria.
+O LocalStack inicia apenas o serviço SQS. Um container de inicialização separado
+cria `wager-transactions.fifo`, `wager-transactions-dlq.fifo` e
+`wallet-events.fifo`. A fila de entrada possui `RedrivePolicy` com
+`maxReceiveCount=5`. A API só inicia depois que esse container termina com
+sucesso.
+
+A publicação de portas usa o intervalo 3000–3002, permitindo validar três
+réplicas com `docker compose up --scale api=3`. Isso prova que a aplicação não
+depende de estado mantido em um único processo.
+
+### Teste de persistência no Bun
+
+O teste de integração inicia o Vitest pelo executável do Bun, confirma a presença
+de `process.versions.bun` e conecta a um PostgreSQL real. Uma entidade decorada
+pelo MikroORM é persistida e recarregada de uma tabela temporária criada dentro
+de uma transação. A tabela usa `ON COMMIT DROP`, portanto o teste não modifica o
+schema permanente nem depende de sincronização automática.
 
 ## Money Value Object
 
@@ -142,6 +157,6 @@ atrás de um simples `false`.
 
 ## Próximas fases
 
-A próxima implementação é o value object `Money`. Ele ficará no domínio e será
-desenvolvido antes das entidades de persistência, garantindo que representação,
-aritmética e validação monetária não dependam do PostgreSQL ou do MikroORM.
+`Money` está concluído. A próxima implementação é o aggregate `Wallet`, que usa
+o value object para proteger saldo, moeda e versão sem depender de PostgreSQL,
+MikroORM ou NestJS.

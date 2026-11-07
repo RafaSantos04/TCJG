@@ -38,8 +38,23 @@ bun run infra:up
 Esse comando constrói a API e inicia:
 
 - API em `http://localhost:3000`
-- PostgreSQL em `localhost:5432`
+- PostgreSQL em `localhost:5433` (porta interna `5432`)
 - LocalStack em `http://localhost:4566`
+
+O container de inicialização cria automaticamente:
+
+- `wager-transactions.fifo`
+- `wager-transactions-dlq.fifo`
+- `wallet-events.fifo`
+
+`wager-transactions.fifo` usa a DLQ com `maxReceiveCount=5`.
+
+Para validar três instâncias da API, o Compose reserva as portas 3000–3002:
+
+```bash
+docker compose up --build --scale api=3 -d
+docker compose ps
+```
 
 Para acompanhar a API:
 
@@ -72,17 +87,23 @@ bun run start:prod
 ## Qualidade
 
 ```bash
+bun run test:unit
+bun run test:integration
+bun run test:concurrency
 bun run typecheck
 bun run lint
-bun run test
 bun run test:e2e
 bun run build
 ```
 
 Os testes E2E substituem apenas o módulo de banco por um módulo vazio. Assim,
 eles exercitam o bootstrap, o controller e o `NodeAdapter` sem exigir um
-PostgreSQL externo. Testes de integração reais com PostgreSQL serão adicionados
-junto às entidades e constraints.
+PostgreSQL externo.
+
+O teste de integração executa o Vitest explicitamente no runtime Bun e usa um
+PostgreSQL real. Ele cria uma tabela temporária dentro de uma transação,
+persiste e recarrega uma entidade decorada pelo MikroORM e remove a tabela
+automaticamente ao concluir. Use `TEST_DATABASE_URL` para selecionar o banco.
 
 ## Migrations
 
@@ -92,9 +113,9 @@ Não usamos sincronização automática de schema.
 
 ```bash
 bun run db:migration:create
-bun run db:migration:up
+bun run migration:up
 bun run db:migration:list
-bun run db:migration:down
+bun run migration:down
 ```
 
 Os comandos de migration exigem o PostgreSQL ativo e usam `DATABASE_URL`.
@@ -103,10 +124,14 @@ Os comandos de migration exigem o PostgreSQL ativo e usam `DATABASE_URL`.
 
 ```text
 src/
-├── domain/          regras de negócio e invariantes
-├── application/     casos de uso e portas
-├── infrastructure/  banco, ORM, SQS e implementações externas
-├── presentation/    controllers HTTP e consumidores
+├── shared/domain/   value objects e erros compartilhados
+├── <módulo>/
+│   ├── domain/          regras de negócio e invariantes
+│   ├── application/     casos de uso e portas
+│   ├── infrastructure/  persistência e integrações
+│   └── presentation/    HTTP ou consumidores
+├── infrastructure/  composição compartilhada de banco e mensageria
+├── presentation/    endpoints de sistema
 ├── config/          contrato das variáveis de ambiente
 ├── app.module.ts    composição das dependências
 └── main.ts          bootstrap da aplicação

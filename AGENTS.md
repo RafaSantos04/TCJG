@@ -1,5 +1,27 @@
 # AGENTS.md
 
+## TCJG — regras de domínio e confiabilidade
+
+1. Nunca usar `number`, `float` ou `double` para dinheiro. Todo valor monetário
+   usa `Money`, recebido e serializado como string decimal com duas casas.
+2. Nunca usar cache em memória como garantia de idempotência. A garantia deve
+   ser persistente e protegida por constraint no PostgreSQL.
+3. Eventos externos saem somente pela outbox gravada na mesma transação da
+   alteração financeira. Nunca publicar antes do commit.
+4. O ledger é append-only: lançamentos não podem sofrer `UPDATE` ou `DELETE`.
+5. Não usar lock global. A concorrência é serializada por `walletId` com
+   `SELECT ... FOR UPDATE`.
+6. Nunca executar `read → calculate → update` do saldo sem manter o lock da
+   wallet durante toda a transação.
+7. Invariantes críticas também existem no schema por meio de `UNIQUE`, `CHECK`,
+   foreign keys, índices e triggers; não apenas no código.
+8. O domínio é TypeScript puro. Aggregates usam construtor privado e factories
+   `create`, `from` ou `rehydrate`; `rehydrate` não reexecuta transições.
+9. Testes de integração usam PostgreSQL e LocalStack reais. Banco e SQS não são
+   substituídos por mocks nesses testes.
+10. Toda decisão técnica ou interpretação relevante deve ser registrada em
+    `ARCHITECTURE.md` ao concluir o cartão correspondente.
+
 ## NestJS
 
 This app's version of NestJS is likely newer than what you know. https://docs.nestjs.com/llms.txt indexes its documentation, with a markdown page per chapter.

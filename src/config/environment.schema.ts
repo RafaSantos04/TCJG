@@ -14,7 +14,7 @@ export const environmentSchema = z
           ['postgres:', 'postgresql:'].includes(new URL(value).protocol),
         'DATABASE_URL must use the postgres or postgresql protocol',
       )
-      .default('postgresql://tcjg:tcjg@localhost:5432/tcjg'),
+      .default('postgresql://tcjg:tcjg@localhost:5433/tcjg'),
     DB_POOL_MIN: z.coerce.number().int().min(0).default(2),
     DB_POOL_MAX: z.coerce.number().int().positive().default(10),
     AWS_REGION: z.string().min(1).default('us-east-1'),

@@ -16,12 +16,14 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
     ports:
-      - '3000:3000'
+      - '3000-3002:3000'
     depends_on:
       postgres:
         condition: service_healthy
       localstack:
         condition: service_healthy
+      localstack-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -43,7 +45,7 @@ services:
       POSTGRES_USER: tcjg
       POSTGRES_PASSWORD: tcjg
     ports:
-      - '5432:5432'
+      - '5433:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -74,6 +76,21 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
+
+  localstack-init:
+    image: localstack/localstack:2026.10.6
+    entrypoint: ['python', '/init/init_aws.py']
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      LOCALSTACK_ENDPOINT: http://localstack:4566
+    volumes:
+      - ./docker/localstack/init_aws.py:/init/init_aws.py:ro
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: 'no'
 
 volumes:
   postgres-data:

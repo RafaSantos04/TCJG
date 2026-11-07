@@ -12,6 +12,7 @@
   },
   "scripts": {
     "build": "nest build",
+    "dev": "nest start --watch",
     "deploy": "nest deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"*.ts\" \"*.json\" \"README.md\" \"ARCHITECTURE.md\" \"*.yaml\"",
     "start": "nest start",
@@ -21,6 +22,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "oxlint --type-aware src/ test/",
     "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:integration": "bun ./node_modules/vitest/vitest.mjs run --config ./vitest.config.integration.ts",
+    "test:concurrency": "vitest run --config ./vitest.config.concurrency.ts --passWithNoTests",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
@@ -29,9 +33,13 @@
     "db:migration:up": "bunx mikro-orm migration:up",
     "db:migration:down": "bunx mikro-orm migration:down",
     "db:migration:list": "bunx mikro-orm migration:list",
+    "migration:up": "bunx mikro-orm migration:up",
+    "migration:down": "bunx mikro-orm migration:down",
     "infra:up": "docker compose up --build -d",
+    "infra:up:scaled": "docker compose up --build --scale api=3 -d",
     "infra:down": "docker compose down",
-    "infra:logs": "docker compose logs -f api"
+    "infra:logs": "docker compose logs -f api",
+    "infra:queues": "docker compose exec localstack awslocal sqs list-queues"
   },
   "dependencies": {
     "@mikro-orm/core": "^7.2.8",
