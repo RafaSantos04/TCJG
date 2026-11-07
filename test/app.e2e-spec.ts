@@ -1,26 +1,35 @@
+import { Module } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { NestNodeApplication, NodeAdapter } from '@nestjs/platform-node';
 import request from 'supertest';
-import { App } from 'supertest/types.js';
 import { AppModule } from './../src/app.module.js';
+import { DatabaseModule } from './../src/infrastructure/persistence/database.module.js';
+
+@Module({})
+class TestDatabaseModule {}
 
 describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: NestNodeApplication;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideModule(DatabaseModule)
+      .useModule(TestDatabaseModule)
+      .compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication<NestNodeApplication>(
+      new NodeAdapter(),
+    );
     await app.init();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
+  it('/ (GET)', async () => {
+    await request(app.getHttpServer())
       .get('/')
       .expect(200)
-      .expect('Hello World!');
+      .expect({ name: 'tcjg', status: 'ok' });
   });
 
   afterEach(async () => {

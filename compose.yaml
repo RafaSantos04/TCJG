@@ -1,0 +1,80 @@
+name: tcjg
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://tcjg:tcjg@postgres:5432/tcjg
+      DB_POOL_MIN: 2
+      DB_POOL_MAX: 10
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'bun',
+          '-e',
+          "const response = await fetch('http://localhost:3000'); if (!response.ok) process.exit(1);",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: tcjg
+      POSTGRES_USER: tcjg
+      POSTGRES_PASSWORD: tcjg
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tcjg -d tcjg']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  localstack:
+    image: localstack/localstack:2026.10.6
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - '4566:4566'
+    volumes:
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -fsS http://localhost:4566/_localstack/health > /dev/null',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  localstack-data:
