@@ -93,10 +93,10 @@ bun run build
 bun run start:prod
 ```
 
-## Primeiros endpoints financeiros
+## API financeira
 
-Com o PostgreSQL ativo e a migration aplicada, a Fase 7 permite criar uma
-wallet e processar `BET`, `WIN` e `LOSS`:
+Com o PostgreSQL ativo e a migration aplicada, a API permite criar uma wallet,
+processar `BET`, `WIN` e `LOSS` e consultar o estado persistido:
 
 ```http
 POST /wallets
@@ -128,6 +128,39 @@ Idempotency-Key: provider-a:transaction-123
 Repetir o segundo request com a mesma chave e payload devolve a resposta
 persistida com `idempotentReplay: true`. Reutilizar a chave com outro payload
 devolve `409`.
+
+As consultas disponíveis são:
+
+```http
+GET /wallets/:walletId
+GET /wallets/:walletId/ledger?limit=50&cursor=<nextCursor>
+GET /wagering/transactions/:transactionId
+GET /providers/:providerId/wagering/transactions/:externalTransactionId
+```
+
+O ledger usa paginação por cursor, com `limit` padrão 50 e máximo 200. Use
+`nextCursor` exatamente como recebido; o valor codifica a sequência do último
+lançamento e não deve ser interpretado pelo cliente. Inserções posteriores não
+repetem itens já percorridos.
+
+Erros HTTP possuem um único formato:
+
+```json
+{
+  "error": {
+    "code": "WALLET_NOT_FOUND",
+    "message": "Wallet ... was not found",
+    "retryable": false
+  }
+}
+```
+
+Falhas transitórias retornam `503`, `retryable: true` e `Retry-After: 1`.
+Validação retorna `422`, conflitos retornam `409` e recursos ausentes, `404`.
+O health check `GET /` é público. As rotas financeiras passam por uma porta de
+identidade de provider; nesta etapa o adapter é propositalmente no-op, pronto
+para ser substituído por autenticação real sem alterar controllers e casos de
+uso.
 
 ## Qualidade
 

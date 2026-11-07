@@ -39,3 +39,20 @@ export const idempotencyKeySchema = z
   .refine((value) => value.trim() === value, {
     message: 'Idempotency-Key cannot have surrounding whitespace',
   });
+
+export const uuidPathSchema = z.uuid();
+
+export const providerIdPathSchema = z.string().trim().min(1).max(255);
+
+export const externalTransactionIdPathSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255);
+
+export const ledgerQuerySchema = z.strictObject({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export type LedgerQuery = z.infer<typeof ledgerQuerySchema>;

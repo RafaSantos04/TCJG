@@ -4,18 +4,25 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { Migrator } from '@mikro-orm/migrations';
 import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { MikroOrmFinancialTransactionAdapter } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm-financial-transaction.adapter.js';
+import { MikroOrmFinancialQueryAdapter } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm-financial-query.adapter.js';
 import { Migration20261107160000InitialFinancialSchema } from '../../src/infrastructure/persistence/mikro-orm/migrations/Migration20261107160000InitialFinancialSchema.js';
 import { financialEntities } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm.options.js';
 import { CreateWallet } from '../../src/wallet/application/create-wallet.js';
+import { GetWallet } from '../../src/wallet/application/get-wallet.js';
+import { ListWalletLedger } from '../../src/wallet/application/list-wallet-ledger.js';
 import { WalletAlreadyExistsError } from '../../src/wallet/application/errors/wallet-already-exists.error.js';
 import { IdempotencyConflictError } from '../../src/wagering/application/errors/idempotency-conflict.error.js';
 import { ProcessWagerTransaction } from '../../src/wagering/application/process-wager-transaction.js';
+import { GetWagerTransaction } from '../../src/wagering/application/get-wager-transaction.js';
 
 describe.sequential('financial application with PostgreSQL', () => {
   const schema = `phase_seven_${randomUUID().replaceAll('-', '')}`;
   let orm: Awaited<ReturnType<typeof MikroORM.init>>;
   let createWallet: CreateWallet;
   let processWager: ProcessWagerTransaction;
+  let getWallet: GetWallet;
+  let listWalletLedger: ListWalletLedger;
+  let getWager: GetWagerTransaction;
 
   beforeAll(async () => {
     orm = await MikroORM.init({
@@ -38,8 +45,12 @@ describe.sequential('financial application with PostgreSQL', () => {
     await orm.migrator.up({ schema });
 
     const adapter = new MikroOrmFinancialTransactionAdapter(orm.em);
+    const queryAdapter = new MikroOrmFinancialQueryAdapter(orm.em);
     createWallet = new CreateWallet(adapter);
     processWager = new ProcessWagerTransaction(adapter);
+    getWallet = new GetWallet(queryAdapter);
+    listWalletLedger = new ListWalletLedger(queryAdapter);
+    getWager = new GetWagerTransaction(queryAdapter);
   }, 60_000);
 
   afterAll(async () => {
@@ -145,5 +156,59 @@ describe.sequential('financial application with PostgreSQL', () => {
       );
 
     expect(summary).toEqual({ balance: '80.00', debits: '1', credits: '2' });
+  });
+
+  it('queries wallet, wager and stable ledger pages around a new insert', async () => {
+    const wallet = await createWallet.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    const base = {
+      providerId: 'provider-query-integration',
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: randomUUID(),
+      gameId: 'query-game',
+    } as const;
+    const externalTransactionId = randomUUID();
+    const bet = await processWager.execute({
+      ...base,
+      externalTransactionId,
+      idempotencyKey: randomUUID(),
+      kind: 'BET',
+      money: { amount: '10.00', currency: 'BRL' },
+    });
+
+    const firstPage = await listWalletLedger.execute({
+      walletId: wallet.id,
+      limit: 1,
+    });
+    await processWager.execute({
+      ...base,
+      externalTransactionId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      kind: 'WIN',
+      money: { amount: '5.00', currency: 'BRL' },
+    });
+    const secondPage = await listWalletLedger.execute({
+      walletId: wallet.id,
+      cursor: firstPage.nextCursor ?? undefined,
+      limit: 2,
+    });
+
+    expect((await getWallet.execute(wallet.id)).balance.amount).toBe('95.00');
+    expect((await getWager.byId(bet.transactionId)).id).toBe(bet.transactionId);
+    expect(
+      (await getWager.byProvider(base.providerId, externalTransactionId)).id,
+    ).toBe(bet.transactionId);
+    expect(firstPage.items).toHaveLength(1);
+    expect(secondPage.items).toHaveLength(2);
+    expect(
+      new Set([
+        ...firstPage.items.map((item) => item.sequence),
+        ...secondPage.items.map((item) => item.sequence),
+      ]).size,
+    ).toBe(3);
+    expect(secondPage.nextCursor).toBeNull();
   });
 });

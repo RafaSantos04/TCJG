@@ -352,6 +352,34 @@ somente operações que precisam participar da mesma transação SQL; dividi-lo 
 interfaces menores agora fragmentaria uma unidade atômica coesa, portanto não
 forçamos ISP além do que o fluxo realmente consome.
 
+## API de consulta e fronteira HTTP
+
+As quatro consultas da Fase 8 dependem de `FinancialQueryPort`. Essa porta de
+leitura é separada de `FinancialTransactionPort`: consultas não recebem métodos
+de escrita nem abrem uma transação financeira apenas para carregar uma projeção.
+O adapter MikroORM converte entidades de persistência em read models e os casos
+de uso convertem datas para o contrato HTTP.
+
+O ledger é ordenado pelo `bigserial seq` e usa keyset pagination, não `OFFSET`.
+O cursor é o `seq` codificado em base64url e validado de forma canônica. Cada
+página consulta `seq > cursor`, ordena crescente e busca `limit + 1`; o item
+extra informa se existe próxima página. Uma inserção concorrente pode aparecer
+numa página posterior, mas não desloca nem repete lançamentos já lidos.
+
+`FinancialExceptionFilter` é global e converte erros de aplicação, validação e
+infraestrutura no envelope `{ error: { code, message, retryable } }`. Conflitos
+retornam `409`, ausências `404`, entrada inválida `422` e falhas transitórias
+`503` com `Retry-After`. Erros inesperados são registrados e devolvem mensagem
+genérica para não vazar detalhes internos.
+
+`ProviderAuthGuard` também é global, enquanto `GET /` é explicitamente público.
+O guard depende de `ProviderIdentityPort` e impede que a identidade autenticada
+opere com outro `providerId`. O adapter atual é no-op e deriva a identidade do
+próprio request porque o desafio não define credencial ou protocolo de login.
+Não adotamos `@nestjs/authentication` nesta fase: o pacote cobre o ciclo completo
+de usuários, sessões e sign-in, maior que a fronteira solicitada. Uma integração
+real de JWT, API key ou mTLS substitui apenas o adapter da porta.
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.
@@ -365,5 +393,5 @@ forçamos ISP além do que o fluxo realmente consome.
 
 ## Próximas fases
 
-A próxima fase completa as consultas HTTP, paginação do ledger, autenticação
-extensível e o mapeamento global de status e erros.
+A próxima fase conecta o consumo SQS, deduplicação por inbox e política de
+retry às mesmas portas transacionais.
