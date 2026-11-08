@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { ConfigService } from '@nestjs/config';
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { Migrator } from '@mikro-orm/migrations';
@@ -20,6 +21,11 @@ import { TransientPersistenceError } from '../../src/shared/application/errors/p
 import { CreateWallet } from '../../src/wallet/application/create-wallet.js';
 import { ProcessWagerMessage } from '../../src/wagering/application/process-wager-message.js';
 import { ProcessWagerTransaction } from '../../src/wagering/application/process-wager-transaction.js';
+import type {
+  FinancialTransactionContext,
+  FinancialTransactionPort,
+} from '../../src/shared/application/ports/financial-transaction.port.js';
+import { expectWalletMatchesLedger } from '../helpers/financial-invariants.js';
 
 type QueuePair = Readonly<{
   queueName: string;
@@ -49,6 +55,10 @@ describe.sequential('SQS consumer and transactional inbox', () => {
   let processor: ProcessWagerMessage;
 
   beforeAll(async () => {
+    await connectApplication(true);
+  }, 60_000);
+
+  async function connectApplication(runMigrations: boolean): Promise<void> {
     orm = await MikroORM.init({
       driver: PostgreSqlDriver,
       clientUrl:
@@ -65,14 +75,14 @@ describe.sequential('SQS consumer and transactional inbox', () => {
         allOrNothing: true,
       },
     });
-    await orm.migrator.up({ schema });
+    if (runMigrations) await orm.migrator.up({ schema });
     adapter = new MikroOrmFinancialTransactionAdapter(orm.em);
     createWallet = new CreateWallet(adapter);
     processor = new ProcessWagerMessage(
       adapter,
       new ProcessWagerTransaction(adapter),
     );
-  }, 60_000);
+  }
 
   beforeEach(async () => {
     await orm.em.getConnection().execute(`
@@ -84,6 +94,21 @@ describe.sequential('SQS consumer and transactional inbox', () => {
         "${schema}"."wallets"
       restart identity cascade
     `);
+  });
+
+  afterEach(async () => {
+    const wallets = await orm.em
+      .getConnection()
+      .execute<Array<{ id: string }>>(
+        `select id from "${schema}"."wallets" order by id`,
+      );
+    for (const wallet of wallets) {
+      await expectWalletMatchesLedger(
+        orm.em.getConnection(),
+        wallet.id,
+        schema,
+      );
+    }
   });
 
   afterAll(async () => {
@@ -118,6 +143,139 @@ describe.sequential('SQS consumer and transactional inbox', () => {
 
     const counts = await tableCounts();
     expect(counts).toEqual({ inbox: 1, wagers: 2, ledger: 2 });
+  });
+
+  it('survives a worker death after commit and before the SQS ack', async () => {
+    const pair = await createQueuePair('worker-death');
+    const wallet = await createWallet.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    const body = wagerBody(wallet.id, wallet.playerId, 'worker-death');
+    await send(pair.queueUrl, body, wallet.id);
+
+    const worker = spawn(
+      process.execPath,
+      ['test/fixtures/fault-injected-sqs-worker.ts'],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TEST_DATABASE_URL:
+            process.env.TEST_DATABASE_URL ??
+            'postgresql://tcjg:tcjg@127.0.0.1:5433/tcjg',
+          TEST_SCHEMA: schema,
+          AWS_ENDPOINT_URL: awsEndpoint,
+          AWS_REGION: awsRegion,
+          AWS_ACCESS_KEY_ID: credentials.accessKeyId,
+          AWS_SECRET_ACCESS_KEY: credentials.secretAccessKey,
+          SQS_QUEUE_NAME: pair.queueName,
+          SQS_DLQ_NAME: pair.dlqName,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    const stderr: Buffer[] = [];
+    worker.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      worker.once('error', reject);
+      worker.once('exit', resolve);
+    });
+
+    expect(exitCode, Buffer.concat(stderr).toString('utf8')).toBe(1);
+    expect(await tableCounts()).toEqual({ inbox: 1, wagers: 2, ledger: 2 });
+
+    await orm.close(true);
+    await connectApplication(false);
+
+    const replacement = makeConsumer(pair, processor, {
+      SQS_VISIBILITY_TIMEOUT_SECONDS: 1,
+    });
+    expect(
+      await pollUntil(async () => (await replacement.runOnce()) > 0, 10_000),
+    ).toBe(true);
+    await replacement.onApplicationShutdown();
+
+    expect(await tableCounts()).toEqual({ inbox: 1, wagers: 2, ledger: 2 });
+    expect(
+      (
+        await orm.em
+          .getConnection()
+          .execute<Array<{ balance: string }>>(
+            `select balance::text as balance from "${schema}"."wallets" where id = ?`,
+            [wallet.id],
+          )
+      )[0]?.balance,
+    ).toBe('75.00');
+  });
+
+  it('rolls back inbox, wallet, wager, ledger and outbox on a mid-flight failure', async () => {
+    const wallet = await createWallet.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    await orm.em
+      .getConnection()
+      .execute(`delete from "${schema}"."outbox_messages"`);
+    const failingTransactions: FinancialTransactionPort = {
+      run: <T>(work: (context: FinancialTransactionContext) => Promise<T>) =>
+        adapter.run((context) =>
+          work(
+            new Proxy(context, {
+              get(target, property, receiver) {
+                if (property === 'insertOutbox') {
+                  return async () => {
+                    throw new Error('fault injected before outbox insert');
+                  };
+                }
+                const value = Reflect.get(
+                  target,
+                  property,
+                  receiver,
+                ) as unknown;
+                return typeof value === 'function' ? value.bind(target) : value;
+              },
+            }),
+          ),
+        ),
+    };
+    const failingProcessor = new ProcessWagerMessage(
+      failingTransactions,
+      new ProcessWagerTransaction(failingTransactions),
+    );
+
+    await expect(
+      failingProcessor.execute(
+        wagerBody(wallet.id, wallet.playerId, 'atomicity'),
+        'phase-fourteen-consumer',
+      ),
+    ).rejects.toThrow('fault injected before outbox insert');
+
+    const [state] = await orm.em.getConnection().execute<
+      Array<{
+        balance: string;
+        inbox: string;
+        wagers: string;
+        ledger: string;
+        outbox: string;
+      }>
+    >(
+      `select
+         w.balance::text as balance,
+         (select count(*)::text from "${schema}"."inbox_messages") as inbox,
+         (select count(*)::text from "${schema}"."wager_transactions") as wagers,
+         (select count(*)::text from "${schema}"."wallet_ledger_entries") as ledger,
+         (select count(*)::text from "${schema}"."outbox_messages") as outbox
+       from "${schema}"."wallets" w where w.id = ?`,
+      [wallet.id],
+    );
+    expect(state).toEqual({
+      balance: '100.00',
+      inbox: '0',
+      wagers: '1',
+      ledger: '1',
+      outbox: '0',
+    });
   });
 
   it('retries a transient error and succeeds without duplicate effects', async () => {

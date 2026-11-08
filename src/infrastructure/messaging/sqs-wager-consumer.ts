@@ -158,6 +158,14 @@ export class SqsWagerConsumer
         this.metrics?.recordWager(result.transaction.status, kind);
       }
       if (result.duplicate) this.metrics?.recordReplay('sqs');
+      if (this.config.get<string>('FAULT_INJECT') === 'after_commit') {
+        this.logger.fatal({
+          event: 'fault_injected_after_commit',
+          messageId: result.messageId,
+          transactionId: result.transaction?.transactionId,
+        });
+        process.exit(1);
+      }
       await this.client.send(
         new DeleteMessageCommand({
           QueueUrl: await this.getQueueUrl(false),

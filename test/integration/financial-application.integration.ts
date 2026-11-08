@@ -76,9 +76,8 @@ describe.sequential('financial application with PostgreSQL', () => {
     getWallet = new GetWallet(queryAdapter);
     listWalletLedger = new ListWalletLedger(queryAdapter);
     getWager = new GetWagerTransaction(queryAdapter);
-    reconciliationRecordDivergence = vi.fn<
-      ReconciliationObservabilityPort['recordDivergence']
-    >();
+    reconciliationRecordDivergence =
+      vi.fn<ReconciliationObservabilityPort['recordDivergence']>();
     const reconciliationObservability: ReconciliationObservabilityPort = {
       recordDivergence: reconciliationRecordDivergence,
     };
@@ -94,6 +93,21 @@ describe.sequential('financial application with PostgreSQL', () => {
         .getConnection()
         .execute(`drop schema if exists "${schema}" cascade`);
       await orm.close(true);
+    }
+  });
+
+  afterEach(async () => {
+    const wallets = await orm.em
+      .getConnection()
+      .execute<Array<{ id: string }>>(
+        `select id from "${schema}"."wallets" order by id`,
+      );
+    for (const wallet of wallets) {
+      await expectWalletMatchesLedger(
+        orm.em.getConnection(),
+        wallet.id,
+        schema,
+      );
     }
   });
 
@@ -305,6 +319,12 @@ describe.sequential('financial application with PostgreSQL', () => {
         [wallet.id],
       );
     expect(persisted?.balance).toBe('125.00');
+    await orm.em
+      .getConnection()
+      .execute(
+        `update "${schema}".wallets set balance = '100.00' where id = ?`,
+        [wallet.id],
+      );
   });
 
   it('resolves a ROLLBACK that arrived before its BET', async () => {

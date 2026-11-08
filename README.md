@@ -277,12 +277,18 @@ valida as constraints de unicidade, saldo, referências, reversões e ledger
 append-only. A suíte da outbox valida recuperação de lease abandonado, dois
 publishers concorrentes, indisponibilidade do SQS com retry e lag. O schema e a
 fila de teste são removidos ao concluir. A suíte do consumer valida redelivery
-após commit antes do ack, retry transitório, poison message na DLQ e shutdown
-sem perda. Use `TEST_DATABASE_URL` para selecionar o banco e `AWS_ENDPOINT_URL`
-para selecionar o SQS.
+após commit antes do ack, mata um processo Bun real nesse intervalo, reconecta
+a aplicação ao mesmo schema, confirma a deduplicação persistente, força
+rollback no meio da transação, cobre retry transitório, poison message na DLQ e
+shutdown sem perda. Ao fim de cada cenário financeiro, o saldo materializado é
+comparado com a soma e a continuidade do ledger diretamente no PostgreSQL.
+PostgreSQL e SQS não são substituídos por mocks nesses testes. Use
+`TEST_DATABASE_URL` para selecionar o banco e `AWS_ENDPOINT_URL` para selecionar
+o SQS.
 
-Os testes de concorrência usam PostgreSQL real e distribuem HTTP entre as três
-instâncias do Compose. Execute-os depois de reconstruir e subir a API:
+Os testes de concorrência usam PostgreSQL real, exigem pelo menos três URLs
+distintas e verificam o liveness de cada instância antes de distribuir o HTTP.
+Execute-os depois de reconstruir e subir a API:
 
 ```bash
 bun run infra:up:scaled

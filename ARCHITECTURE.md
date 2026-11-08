@@ -525,9 +525,10 @@ detalhe para que a Fase 13 conecte o mesmo contador ao registry Prometheus sem
 acoplar a regra financeira à biblioteca de métricas.
 
 O helper `test/helpers/financial-invariants.ts` verifica soma, saldo final e
-continuidade diretamente no PostgreSQL e já é compartilhado pela suíte de
-concorrência e pelos testes de integração. A consolidação em todos os cenários
-de falha permanece para a matriz da Fase 14.
+continuidade diretamente no PostgreSQL e é executado ao fim de cada cenário
+financeiro das suítes de concorrência e integração. O teste que introduz uma
+divergência intencional restaura o dado somente depois de validar o diagnóstico,
+permitindo que a mesma pós-condição seja aplicada sem esconder a falha testada.
 
 ## Observabilidade, métricas e health
 
@@ -563,6 +564,29 @@ Mantivemos `prom-client` nesta fase porque é a biblioteca explicitamente pedida
 pelo desafio, embora a versão instalada sinalize migração futura para
 `@prometheus-io/client`. Essa troca fica atrás de `MetricsService` e não afeta
 domínio nem casos de uso.
+
+## Matriz de concorrência e falhas
+
+A validação multi-instância falha imediatamente se `CONCURRENCY_API_URLS` não
+contiver pelo menos três endpoints distintos ou se qualquer um dos três
+primeiros não responder ao liveness. Assim, distribuir as requisições pela lista
+não é confundido com comprovar que três processos estão realmente disponíveis.
+
+O ponto de falha `FAULT_INJECT=after_commit` existe exclusivamente para o teste
+de caos e fica desabilitado por padrão. Ele encerra o processo com código 1
+depois que `ProcessWagerMessage` retorna — portanto, depois do commit de inbox,
+wallet, wager, ledger e outbox — e antes de `DeleteMessage`. A suíte inicia esse
+consumer em outro processo Bun, comprova no PostgreSQL que o commit ocorreu,
+fecha a conexão da aplicação, abre uma nova e recebe a mesma mensagem após o
+visibility timeout. O inbox persistente transforma a redelivery em replay: não
+há novo débito, lançamento ou evento.
+
+A atomicidade usa PostgreSQL real e injeta uma falha antes do insert da outbox,
+quando inbox, wallet, wager e ledger já foram manipulados no contexto
+transacional. A exceção precisa deixar apenas a abertura anterior da wallet;
+qualquer alteração parcial faz o teste falhar. O SQS continua sendo LocalStack
+real. Os doubles existentes nessa suíte representam somente portas de
+observabilidade ou a falha deliberada, nunca PostgreSQL nem SQS.
 
 ## Convenções
 

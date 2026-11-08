@@ -65,6 +65,15 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
   let orm: Awaited<ReturnType<typeof MikroORM.init>>;
 
   beforeAll(async () => {
+    expect(
+      new Set(apiUrls).size,
+      'CONCURRENCY_API_URLS must expose at least three distinct API instances',
+    ).toBeGreaterThanOrEqual(3);
+    const health = await Promise.all(
+      apiUrls.slice(0, 3).map((url) => fetch(`${url}/health/live`)),
+    );
+    expect(health.every((response) => response.ok)).toBe(true);
+
     orm = await MikroORM.init({
       driver: PostgreSqlDriver,
       clientUrl:

@@ -7,6 +7,7 @@ describe('environmentSchema', () => {
     expect(environment).toMatchObject({
       NODE_ENV: 'development',
       PORT: 4000,
+      FAULT_INJECT: 'none',
       DB_POOL_MIN: 2,
       DB_POOL_MAX: 10,
       AWS_REGION: 'us-east-1',

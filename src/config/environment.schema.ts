@@ -6,6 +6,7 @@ export const environmentSchema = z
       .enum(['development', 'test', 'production'])
       .default('development'),
     PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
+    FAULT_INJECT: z.enum(['none', 'after_commit']).default('none'),
     DATABASE_URL: z
       .string()
       .url()

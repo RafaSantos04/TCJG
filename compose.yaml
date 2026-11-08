@@ -8,6 +8,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      FAULT_INJECT: ${FAULT_INJECT:-none}
       DATABASE_URL: postgresql://tcjg:tcjg@postgres:5432/tcjg
       DB_POOL_MIN: 2
       DB_POOL_MAX: 10
