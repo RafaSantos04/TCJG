@@ -318,6 +318,15 @@ busca o recibo persistido. Isso absorve uma indisponibilidade transitória ou um
 janela de visibilidade entre conexões sob rajadas multi-instância; se o vencedor
 continuar ausente, a resposta permanece `503` em vez de inventar um resultado.
 
+A releitura consulta primeiro a chave e depois a identidade externa. Em
+`READ COMMITTED`, o commit vencedor pode ficar visível exatamente entre esses
+dois `SELECT`s: a primeira consulta não encontra a linha e a segunda já a
+encontra. Nesse caso, a linha da identidade externa só é replay quando sua
+`idempotencyKey` também coincide com a candidata; então o mesmo `payloadHash` é
+validado e o recibo persistido retorna `200`. Uma chave diferente continua
+como `WAGER_TRANSACTION_CONFLICT`. Essa distinção fecha a janela sem aumentar
+o backoff, sem cache e sem repetir a alteração financeira.
+
 O `@nestjs/idempotency` foi avaliado, mas não é usado nesta operação financeira.
 O desafio exige que chave, `payload_hash`, resultado, `balance_after` e a
 constraint concorrente pertençam ao próprio `wager_transactions` e à mesma

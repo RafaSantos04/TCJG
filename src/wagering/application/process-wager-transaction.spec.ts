@@ -15,6 +15,7 @@ import { WagerTransaction } from '../domain/entities/wager-transaction.js';
 import { WagerTransactionKind } from '../domain/value-objects/wager-transaction-kind.js';
 import type { WagerTransactionStatus } from '../domain/value-objects/wager-transaction-status.js';
 import { IdempotencyConflictError } from './errors/idempotency-conflict.error.js';
+import { WagerTransactionConflictError } from './errors/wager-transaction-conflict.error.js';
 import {
   ProcessWagerTransaction,
   type ProcessWagerTransactionCommand,
@@ -370,6 +371,44 @@ describe('ProcessWagerTransaction', () => {
 
     expect(result.idempotentReplay).toBe(true);
     expect(result.transactionId).toBe('0192f298-345e-7e38-af88-e43f851a819d');
+  });
+
+  it('replays when the winner becomes visible between the two identity reads', async () => {
+    const visibleByProvider = new RecordingContext();
+    visibleByProvider.byProvider = persistedFor();
+    const useCase = new ProcessWagerTransaction(
+      new QueueTransactionPort([
+        new UniqueConstraintPersistenceError(
+          'wager_transactions_idempotency_key_unique',
+        ),
+        visibleByProvider,
+      ]),
+    );
+
+    const result = await useCase.execute(baseCommand);
+
+    expect(result.idempotentReplay).toBe(true);
+    expect(result.transactionId).toBe('0192f298-345e-7e38-af88-e43f851a819d');
+  });
+
+  it('keeps a provider transaction with another idempotency key as conflict', async () => {
+    const visibleByProvider = new RecordingContext();
+    visibleByProvider.byProvider = persistedFor({
+      ...baseCommand,
+      idempotencyKey: 'another-key',
+    });
+    const useCase = new ProcessWagerTransaction(
+      new QueueTransactionPort([
+        new UniqueConstraintPersistenceError(
+          'wager_transactions_provider_external_unique',
+        ),
+        visibleByProvider,
+      ]),
+    );
+
+    await expect(useCase.execute(baseCommand)).rejects.toBeInstanceOf(
+      WagerTransactionConflictError,
+    );
   });
 
   it('processes a REFUND of a processed BET as credit', async () => {
