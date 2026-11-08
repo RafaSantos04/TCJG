@@ -17,6 +17,8 @@ describe('environmentSchema', () => {
       SQS_DLQ_NAME: 'wager-transactions-dlq.fifo',
       SQS_CONSUMER_ENABLED: false,
       SQS_MAX_NUMBER_OF_MESSAGES: 10,
+      PENDING_REFERENCE_WORKER_ENABLED: false,
+      PENDING_REFERENCE_MAX_ATTEMPTS: 10,
     });
   });
 
@@ -56,6 +58,15 @@ describe('environmentSchema', () => {
     const result = environmentSchema.safeParse({
       SQS_RETRY_BASE_SECONDS: '10',
       SQS_RETRY_MAX_SECONDS: '5',
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an inverted pending-reference retry range', () => {
+    const result = environmentSchema.safeParse({
+      PENDING_REFERENCE_RETRY_BASE_MS: '2000',
+      PENDING_REFERENCE_RETRY_MAX_MS: '1000',
     });
 
     expect(result.success).toBe(false);

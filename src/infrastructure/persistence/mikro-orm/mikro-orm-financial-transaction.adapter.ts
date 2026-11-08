@@ -12,12 +12,15 @@ import {
 import type {
   FinancialTransactionContext,
   FinancialTransactionPort,
+  PendingReferenceSchedule,
   PersistedWagerTransaction,
 } from '../../../shared/application/ports/financial-transaction.port.js';
 import type { OutboxMessage } from '../../../shared/domain/entities/outbox-message.js';
 import { InboxMessage } from '../../../shared/domain/entities/inbox-message.js';
 import { Money } from '../../../shared/domain/value-objects/money.js';
 import type { WagerTransaction } from '../../../wagering/domain/entities/wager-transaction.js';
+import type { WagerTransactionKind } from '../../../wagering/domain/value-objects/wager-transaction-kind.js';
+import type { WagerTransactionStatus } from '../../../wagering/domain/value-objects/wager-transaction-status.js';
 import type { Wallet } from '../../../wallet/domain/aggregates/wallet.js';
 import type { WalletLedgerEntry } from '../../../wallet/domain/entities/wallet-ledger-entry.js';
 import { OutboxMessageEntity } from './entities/outbox-message.entity.js';
@@ -181,6 +184,29 @@ class MikroOrmFinancialTransactionContext implements FinancialTransactionContext
     return entity ? this.toPersistedWager(entity) : undefined;
   }
 
+  async lockWagerById(
+    id: string,
+  ): Promise<PersistedWagerTransaction | undefined> {
+    const entity = await this.entityManager.findOne(
+      WagerTransactionEntity,
+      { id },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    );
+    return entity ? this.toPersistedWager(entity) : undefined;
+  }
+
+  async findProcessedReversal(
+    referenceTransactionId: string,
+    kind: Extract<WagerTransactionKind, 'REFUND' | 'ROLLBACK'>,
+  ): Promise<PersistedWagerTransaction | undefined> {
+    const entity = await this.entityManager.findOne(WagerTransactionEntity, {
+      referenceTransactionId,
+      kind,
+      status: 'PROCESSED',
+    });
+    return entity ? this.toPersistedWager(entity) : undefined;
+  }
+
   async lockWallet(walletId: string): Promise<Wallet | undefined> {
     const entity = await this.entityManager.findOne(
       WalletEntity,
@@ -219,10 +245,47 @@ class MikroOrmFinancialTransactionContext implements FinancialTransactionContext
   async insertWager(
     transaction: WagerTransaction,
     balanceAfter: Money,
+    pendingReference?: PendingReferenceSchedule,
   ): Promise<void> {
-    await this.entityManager.insert(
+    const entity = WagerTransactionMapper.toPersistence(
+      transaction,
+      balanceAfter,
+    );
+    entity.attempts = pendingReference?.attempts ?? 0;
+    entity.nextAttemptAt = pendingReference?.nextAttemptAt;
+    await this.entityManager.insert(WagerTransactionEntity, entity);
+  }
+
+  async updateWager(
+    transaction: WagerTransaction,
+    balanceAfter: Money,
+    expectedStatus: WagerTransactionStatus,
+  ): Promise<boolean> {
+    const updatedRows = await this.entityManager.nativeUpdate(
       WagerTransactionEntity,
-      WagerTransactionMapper.toPersistence(transaction, balanceAfter),
+      { id: transaction.id, status: expectedStatus },
+      {
+        referenceTransactionId: transaction.referenceTransactionId,
+        status: transaction.status,
+        failureCode: transaction.failureCode,
+        balanceAfter: balanceAfter.amount,
+        processedAt: transaction.processedAt,
+        nextAttemptAt: null,
+      },
+    );
+    return updatedRows === 1;
+  }
+
+  async reschedulePendingWager(
+    id: string,
+    nextAttemptAt: Date,
+  ): Promise<boolean> {
+    return (
+      (await this.entityManager.nativeUpdate(
+        WagerTransactionEntity,
+        { id, status: 'PENDING_REFERENCE' },
+        { nextAttemptAt },
+      )) === 1
     );
   }
 

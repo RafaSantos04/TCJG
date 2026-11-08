@@ -7,6 +7,7 @@ import { FinancialModule } from './financial.module.js';
 import { OutboxModule } from './outbox.module.js';
 import { AppController } from './presentation/http/app.controller.js';
 import { WagerMessagingModule } from './wager-messaging.module.js';
+import { PendingReferenceModule } from './pending-reference.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { WagerMessagingModule } from './wager-messaging.module.js';
     FinancialModule,
     OutboxModule,
     WagerMessagingModule,
+    PendingReferenceModule,
   ],
   controllers: [AppController],
   providers: [GetApplicationStatus],

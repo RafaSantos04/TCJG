@@ -20,6 +20,24 @@ class RecordingContext implements FinancialTransactionContext {
   ledger?: WalletLedgerEntry;
   readonly outbox: OutboxMessage[] = [];
 
+  async lockWagerById(): Promise<PersistedWagerTransaction | undefined> {
+    return undefined;
+  }
+
+  async findProcessedReversal(): Promise<
+    PersistedWagerTransaction | undefined
+  > {
+    return undefined;
+  }
+
+  async updateWager(): Promise<boolean> {
+    return true;
+  }
+
+  async reschedulePendingWager(): Promise<boolean> {
+    return true;
+  }
+
   async insertInbox(_message: InboxMessage): Promise<boolean> {
     return true;
   }

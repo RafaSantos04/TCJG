@@ -7,6 +7,7 @@ import { DatabaseModule } from './../src/infrastructure/persistence/database.mod
 import { FINANCIAL_TRANSACTION_PORT } from './../src/shared/application/ports/financial-transaction.port.js';
 import { FINANCIAL_QUERY_PORT } from './../src/shared/application/ports/financial-query.port.js';
 import { OUTBOX_REPOSITORY_PORT } from './../src/shared/application/ports/outbox-repository.port.js';
+import { PENDING_REFERENCE_REPOSITORY_PORT } from './../src/shared/application/ports/pending-reference-repository.port.js';
 import { TransientPersistenceError } from './../src/shared/application/errors/persistence.error.js';
 import { CreateWallet } from './../src/wallet/application/create-wallet.js';
 import { IdempotencyConflictError } from './../src/wagering/application/errors/idempotency-conflict.error.js';
@@ -52,6 +53,9 @@ describe('AppController (e2e)', () => {
     scheduleRetry: vi.fn(async () => true),
     getLagSeconds: vi.fn(async () => 0),
   };
+  const pendingReferenceRepository = {
+    claimBatch: vi.fn(async () => []),
+  };
   const validWagerRequest = {
     providerId: 'provider-a',
     externalTransactionId: 'transaction-a',
@@ -92,6 +96,8 @@ describe('AppController (e2e)', () => {
       .useValue(processWagerUseCase)
       .overrideProvider(OUTBOX_REPOSITORY_PORT)
       .useValue(outboxRepository)
+      .overrideProvider(PENDING_REFERENCE_REPOSITORY_PORT)
+      .useValue(pendingReferenceRepository)
       .compile();
 
     app = moduleFixture.createNestApplication<NestNodeApplication>(
@@ -175,8 +181,20 @@ describe('AppController (e2e)', () => {
     await request(app.getHttpServer())
       .post('/wagering/transactions')
       .set('Idempotency-Key', 'pending-reference')
-      .send(validWagerRequest)
+      .send({
+        ...validWagerRequest,
+        kind: 'ROLLBACK',
+        referenceExternalTransactionId: 'bet-arrives-later',
+      })
       .expect(202);
+  });
+
+  it('requires referenceExternalTransactionId for reversals', async () => {
+    await request(app.getHttpServer())
+      .post('/wagering/transactions')
+      .set('Idempotency-Key', 'refund-without-reference')
+      .send({ ...validWagerRequest, kind: 'REFUND' })
+      .expect(422);
   });
 
   it('returns 409 for an idempotency conflict', async () => {

@@ -209,6 +209,25 @@ ainda não começaram. As opções `SQS_*` de `.env.example` controlam filas,
 concorrência, visibility timeout e retry. O Compose habilita o consumer; o
 default do schema fica desabilitado para testes de bootstrap que não sobem SQS.
 
+## Reversões e referências fora de ordem
+
+`POST /wagering/transactions` e o consumidor SQS aceitam `REFUND` e
+`ROLLBACK`, ambos com `referenceExternalTransactionId`. A referência é buscada
+por provider e identificador externo. Provider, player, wallet, moeda, rodada,
+tipo, estado e valor são validados antes de qualquer alteração de saldo.
+
+`REFUND` credita uma `BET` processada. `ROLLBACK` inverte `BET`, `WIN` ou
+`REFUND`. Débitos de reversão sem saldo são persistidos como
+`REJECTED/REVERSAL_INSUFFICIENT_FUNDS`; uma segunda reversão do mesmo tipo é
+`REJECTED/ALREADY_REVERSED`.
+
+Quando a referência ainda não existe, a API responde `202` e persiste
+`PENDING_REFERENCE` com evento na outbox. O worker reivindica linhas com
+`FOR UPDATE SKIP LOCKED`, usa lease e backoff exponencial e reaplica o fluxo sob
+lock da wallet. Por padrão, a décima tentativa sem referência encerra como
+`REJECTED/REFERENCE_NOT_FOUND`. Todas as opções estão em
+`PENDING_REFERENCE_*` no `.env.example`.
+
 ## Qualidade
 
 ```bash

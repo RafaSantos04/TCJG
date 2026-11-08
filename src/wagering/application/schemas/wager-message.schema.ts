@@ -10,23 +10,42 @@ const positiveMoneySchema = z.strictObject({
   currency: z.string().regex(/^[A-Z]{3}$/),
 });
 
-const wagerMessageDataSchema = z.strictObject({
-  providerId: z.string().trim().min(1).max(255),
-  externalTransactionId: z.string().trim().min(1).max(255),
-  idempotencyKey: z
-    .string()
-    .min(1)
-    .max(512)
-    .refine((value) => value.trim() === value, {
-      message: 'idempotencyKey cannot have surrounding whitespace',
-    }),
-  playerId: z.uuid(),
-  walletId: z.uuid(),
-  roundId: z.string().trim().min(1).max(255),
-  gameId: z.string().trim().min(1).max(255),
-  kind: z.enum(['BET', 'WIN', 'LOSS']),
-  money: positiveMoneySchema,
-});
+const wagerMessageDataSchema = z
+  .strictObject({
+    providerId: z.string().trim().min(1).max(255),
+    externalTransactionId: z.string().trim().min(1).max(255),
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(512)
+      .refine((value) => value.trim() === value, {
+        message: 'idempotencyKey cannot have surrounding whitespace',
+      }),
+    playerId: z.uuid(),
+    walletId: z.uuid(),
+    roundId: z.string().trim().min(1).max(255),
+    gameId: z.string().trim().min(1).max(255),
+    kind: z.enum(['BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK']),
+    money: positiveMoneySchema,
+    referenceExternalTransactionId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(255)
+      .optional(),
+  })
+  .superRefine((request, context) => {
+    if (
+      ['REFUND', 'ROLLBACK'].includes(request.kind) &&
+      !request.referenceExternalTransactionId
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['referenceExternalTransactionId'],
+        message: `${request.kind} requires referenceExternalTransactionId`,
+      });
+    }
+  });
 
 export const wagerMessageEnvelopeSchema = z.strictObject({
   messageId: z.string().trim().min(1).max(255),

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { Migrator } from '@mikro-orm/migrations';
 import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
+import { ConfigService } from '@nestjs/config';
 import { MikroOrmFinancialTransactionAdapter } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm-financial-transaction.adapter.js';
 import { MikroOrmFinancialQueryAdapter } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm-financial-query.adapter.js';
 import { Migration20261107160000InitialFinancialSchema } from '../../src/infrastructure/persistence/mikro-orm/migrations/Migration20261107160000InitialFinancialSchema.js';
@@ -14,6 +15,8 @@ import { WalletAlreadyExistsError } from '../../src/wallet/application/errors/wa
 import { IdempotencyConflictError } from '../../src/wagering/application/errors/idempotency-conflict.error.js';
 import { ProcessWagerTransaction } from '../../src/wagering/application/process-wager-transaction.js';
 import { GetWagerTransaction } from '../../src/wagering/application/get-wager-transaction.js';
+import { MikroOrmPendingReferenceRepository } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm-pending-reference.repository.js';
+import { ProcessPendingReferences } from '../../src/wagering/application/process-pending-references.js';
 
 describe.sequential('financial application with PostgreSQL', () => {
   const schema = `phase_seven_${randomUUID().replaceAll('-', '')}`;
@@ -23,6 +26,7 @@ describe.sequential('financial application with PostgreSQL', () => {
   let getWallet: GetWallet;
   let listWalletLedger: ListWalletLedger;
   let getWager: GetWagerTransaction;
+  let processPendingReferences: ProcessPendingReferences;
 
   beforeAll(async () => {
     orm = await MikroORM.init({
@@ -47,7 +51,20 @@ describe.sequential('financial application with PostgreSQL', () => {
     const adapter = new MikroOrmFinancialTransactionAdapter(orm.em);
     const queryAdapter = new MikroOrmFinancialQueryAdapter(orm.em);
     createWallet = new CreateWallet(adapter);
-    processWager = new ProcessWagerTransaction(adapter);
+    const pendingConfig = new ConfigService({
+      PENDING_REFERENCE_INITIAL_DELAY_MS: 0,
+      PENDING_REFERENCE_BATCH_SIZE: 10,
+      PENDING_REFERENCE_LEASE_MS: 1_000,
+      PENDING_REFERENCE_RETRY_BASE_MS: 1,
+      PENDING_REFERENCE_RETRY_MAX_MS: 10,
+      PENDING_REFERENCE_MAX_ATTEMPTS: 1,
+    });
+    processWager = new ProcessWagerTransaction(adapter, pendingConfig);
+    processPendingReferences = new ProcessPendingReferences(
+      new MikroOrmPendingReferenceRepository(orm.em),
+      processWager,
+      pendingConfig,
+    );
     getWallet = new GetWallet(queryAdapter);
     listWalletLedger = new ListWalletLedger(queryAdapter);
     getWager = new GetWagerTransaction(queryAdapter);
@@ -210,5 +227,152 @@ describe.sequential('financial application with PostgreSQL', () => {
       ]).size,
     ).toBe(3);
     expect(secondPage.nextCursor).toBeNull();
+  });
+
+  it('resolves a ROLLBACK that arrived before its BET', async () => {
+    const wallet = await createWallet.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    const roundId = randomUUID();
+    const providerId = 'provider-out-of-order';
+    const betExternalId = randomUUID();
+    const pending = await processWager.execute({
+      providerId,
+      externalTransactionId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId,
+      gameId: 'out-of-order-game',
+      kind: 'ROLLBACK',
+      money: { amount: '25.00', currency: 'BRL' },
+      referenceExternalTransactionId: betExternalId,
+    });
+    expect(pending.status).toBe('PENDING_REFERENCE');
+
+    await processWager.execute({
+      providerId,
+      externalTransactionId: betExternalId,
+      idempotencyKey: randomUUID(),
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId,
+      gameId: 'out-of-order-game',
+      kind: 'BET',
+      money: { amount: '25.00', currency: 'BRL' },
+    });
+    const stats = await processPendingReferences.runOnce();
+    const resolved = await getWager.byId(pending.transactionId);
+
+    expect(stats.processed).toBe(1);
+    expect(resolved.status).toBe('PROCESSED');
+    expect(resolved.balanceAfter?.amount).toBe('100.00');
+    expect((await getWallet.execute(wallet.id)).balance.amount).toBe('100.00');
+  });
+
+  it('rejects PENDING_REFERENCE when the retry limit is exhausted', async () => {
+    const wallet = await createWallet.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    const pending = await processWager.execute({
+      providerId: 'provider-missing-reference',
+      externalTransactionId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: randomUUID(),
+      gameId: 'missing-reference-game',
+      kind: 'REFUND',
+      money: { amount: '10.00', currency: 'BRL' },
+      referenceExternalTransactionId: randomUUID(),
+    });
+
+    const stats = await processPendingReferences.runOnce();
+    const rejected = await getWager.byId(pending.transactionId);
+
+    expect(stats.rejected).toBe(1);
+    expect(rejected.status).toBe('REJECTED');
+    expect(rejected.failureCode).toBe('REFERENCE_NOT_FOUND');
+  });
+
+  it('rejects a second REFUND of the same BET as ALREADY_REVERSED', async () => {
+    const wallet = await createWallet.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    const base = {
+      providerId: 'provider-double-refund',
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: randomUUID(),
+      gameId: 'double-refund-game',
+      money: { amount: '25.00', currency: 'BRL' },
+    } as const;
+    const betExternalId = randomUUID();
+    await processWager.execute({
+      ...base,
+      externalTransactionId: betExternalId,
+      idempotencyKey: randomUUID(),
+      kind: 'BET',
+    });
+    await processWager.execute({
+      ...base,
+      externalTransactionId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      kind: 'REFUND',
+      referenceExternalTransactionId: betExternalId,
+    });
+    const duplicate = await processWager.execute({
+      ...base,
+      externalTransactionId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      kind: 'REFUND',
+      referenceExternalTransactionId: betExternalId,
+    });
+
+    expect(duplicate.status).toBe('REJECTED');
+    expect(duplicate.failureCode).toBe('ALREADY_REVERSED');
+    expect(duplicate.balance.amount).toBe('100.00');
+  });
+
+  it('distinguishes reversal insufficient funds from a rejected BET', async () => {
+    const wallet = await createWallet.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '10.00', currency: 'BRL' },
+    });
+    const base = {
+      providerId: 'provider-reversal-funds',
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: randomUUID(),
+      gameId: 'reversal-funds-game',
+      money: { amount: '25.00', currency: 'BRL' },
+    } as const;
+    const winExternalId = randomUUID();
+    await processWager.execute({
+      ...base,
+      externalTransactionId: winExternalId,
+      idempotencyKey: randomUUID(),
+      kind: 'WIN',
+    });
+    await processWager.execute({
+      ...base,
+      externalTransactionId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      kind: 'BET',
+    });
+    const rollback = await processWager.execute({
+      ...base,
+      externalTransactionId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      kind: 'ROLLBACK',
+      referenceExternalTransactionId: winExternalId,
+    });
+
+    expect(rollback.status).toBe('REJECTED');
+    expect(rollback.failureCode).toBe('REVERSAL_INSUFFICIENT_FUNDS');
+    expect(rollback.balance.amount).toBe('10.00');
   });
 });

@@ -62,6 +62,46 @@ export const environmentSchema = z
     SQS_MAX_RECEIVE_COUNT: z.coerce.number().int().min(1).default(5),
     SQS_RETRY_BASE_SECONDS: z.coerce.number().int().min(1).default(5),
     SQS_RETRY_MAX_SECONDS: z.coerce.number().int().min(1).default(300),
+    PENDING_REFERENCE_WORKER_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
+    PENDING_REFERENCE_POLL_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(500),
+    PENDING_REFERENCE_INITIAL_DELAY_MS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(2_000),
+    PENDING_REFERENCE_LEASE_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(30_000),
+    PENDING_REFERENCE_BATCH_SIZE: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(500)
+      .default(50),
+    PENDING_REFERENCE_RETRY_BASE_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(1_000),
+    PENDING_REFERENCE_RETRY_MAX_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(300_000),
+    PENDING_REFERENCE_MAX_ATTEMPTS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(10),
   })
   .superRefine((environment, context) => {
     if (environment.DB_POOL_MIN > environment.DB_POOL_MAX) {
@@ -87,6 +127,17 @@ export const environmentSchema = z
         message:
           'SQS_RETRY_MAX_SECONDS must be greater than or equal to SQS_RETRY_BASE_SECONDS',
         path: ['SQS_RETRY_MAX_SECONDS'],
+      });
+    }
+    if (
+      environment.PENDING_REFERENCE_RETRY_BASE_MS >
+      environment.PENDING_REFERENCE_RETRY_MAX_MS
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'PENDING_REFERENCE_RETRY_MAX_MS must be greater than or equal to PENDING_REFERENCE_RETRY_BASE_MS',
+        path: ['PENDING_REFERENCE_RETRY_MAX_MS'],
       });
     }
   });

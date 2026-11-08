@@ -13,6 +13,8 @@ export type WagerTransactionEventData = Readonly<{
   walletId: string;
   providerId: string;
   externalTransactionId: string;
+  referenceExternalTransactionId?: string;
+  referenceTransactionId?: string;
   kind: WagerTransactionKind;
   status: WagerTransactionStatus;
   failureCode?: FailureCode;

@@ -442,6 +442,50 @@ shutdown e espera trabalhos iniciados. Mensagens do lote ainda não iniciadas
 recebem `ChangeMessageVisibility(0)`, permitindo que outra réplica as assuma sem
 esperar o timeout normal.
 
+## Reversões e referências fora de ordem
+
+`REFUND` e `ROLLBACK` seguem o mesmo `ProcessWagerTransaction` das operações
+simples. Depois de adquirir o lock pessimista da wallet, o caso de uso resolve a
+referência por `(providerId, referenceExternalTransactionId)` e valida player,
+wallet, moeda, rodada, estado, tipo e valor. `REFUND` sempre credita uma `BET`;
+`ROLLBACK` inverte a direção de `BET`, `WIN` ou `REFUND`. O índice parcial por
+`(reference_transaction_id, kind)` é a proteção final contra duas reversões
+processadas do mesmo tipo, inclusive sob corrida.
+
+Uma referência ausente, `PENDING` ou `PENDING_REFERENCE` não é rejeitada no
+primeiro contato. A transação é persistida como `PENDING_REFERENCE`, junto do
+evento correspondente na outbox, com o saldo observado naquele momento. Isso
+mantém replay HTTP/SQS determinístico enquanto aguarda a referência.
+
+O worker reivindica lotes por `FOR UPDATE SKIP LOCKED`, incrementa `attempts` e
+move `next_attempt_at` para um lease antes de liberar a transação de claim. O
+reprocessamento abre uma nova transação, bloqueia primeiro a wager pendente e
+depois sua wallet, e reutiliza as mesmas validações e persistência do fluxo
+original. Resolução, wallet, ledger, wager e outbox confirmam juntos. Se outro
+worker já concluiu a linha, o estado terminal faz o claim atrasado ser ignorado.
+
+Adotamos limite de 10 tentativas, em vez de TTL de parede. Com backoff padrão de
+`2^attempts` segundos e teto de 5 minutos, a janela ativa é de aproximadamente
+13,5 minutos; períodos em que o serviço está desligado não consomem tentativas.
+Esse comportamento é determinístico para testes e evita rejeitar referências
+apenas porque a infraestrutura esteve indisponível. Esgotamento persiste
+`REJECTED/REFERENCE_NOT_FOUND` e cria `WagerTransactionRejected`. Tentativas
+intermediárias não geram novos eventos, evitando ruído na outbox.
+
+`@nestjs/schedule` e `@nestjs/locks` foram avaliados. O primeiro agenda ticks em
+cada instância; o segundo é adequado quando um job inteiro deve rodar em apenas
+uma instância. Este worker não é singleton: todas as réplicas devem repartir as
+linhas vencidas e processar wallets diferentes em paralelo. O claim PostgreSQL
+por linha com `SKIP LOCKED` já é o coordenador compartilhado e conserva o lease
+no mesmo schema avaliado pelo desafio. Adicionar um lock distribuído para o job
+inteiro reduziria paralelismo e exigiria uma segunda store de coordenação sem
+fortalecer a invariante financeira.
+
+Uma reversão que exigiria débito sem saldo usa
+`REVERSAL_INSUFFICIENT_FUNDS`, distinto de `INSUFFICIENT_FUNDS` de uma aposta.
+Ambas são decisões de negócio terminais e auditáveis, mas têm semânticas
+operacionais diferentes.
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.
@@ -455,5 +499,5 @@ esperar o timeout normal.
 
 ## Próximas fases
 
-A próxima fase conecta o consumo SQS, deduplicação por inbox e política de
-retry às mesmas portas transacionais.
+As próximas fases consolidam reconciliação, observabilidade e a matriz final de
+testes de falha e concorrência.

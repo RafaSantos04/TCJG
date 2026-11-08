@@ -17,16 +17,35 @@ export const createWalletRequestSchema = z.strictObject({
 
 export type CreateWalletRequest = z.infer<typeof createWalletRequestSchema>;
 
-export const processWagerTransactionRequestSchema = z.strictObject({
-  providerId: z.string().trim().min(1).max(255),
-  externalTransactionId: z.string().trim().min(1).max(255),
-  playerId: z.uuid(),
-  walletId: z.uuid(),
-  roundId: z.string().trim().min(1).max(255),
-  gameId: z.string().trim().min(1).max(255),
-  kind: z.enum(['BET', 'WIN', 'LOSS']),
-  money: positiveMoneySchema,
-});
+export const processWagerTransactionRequestSchema = z
+  .strictObject({
+    providerId: z.string().trim().min(1).max(255),
+    externalTransactionId: z.string().trim().min(1).max(255),
+    playerId: z.uuid(),
+    walletId: z.uuid(),
+    roundId: z.string().trim().min(1).max(255),
+    gameId: z.string().trim().min(1).max(255),
+    kind: z.enum(['BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK']),
+    money: positiveMoneySchema,
+    referenceExternalTransactionId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(255)
+      .optional(),
+  })
+  .superRefine((request, context) => {
+    if (
+      ['REFUND', 'ROLLBACK'].includes(request.kind) &&
+      !request.referenceExternalTransactionId
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['referenceExternalTransactionId'],
+        message: `${request.kind} requires referenceExternalTransactionId`,
+      });
+    }
+  });
 
 export type ProcessWagerTransactionRequest = z.infer<
   typeof processWagerTransactionRequestSchema
