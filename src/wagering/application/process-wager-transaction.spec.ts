@@ -335,6 +335,35 @@ describe('ProcessWagerTransaction', () => {
     ).rejects.toBeInstanceOf(IdempotencyConflictError);
   });
 
+  it('replays when a concurrent winner appears between the initial identity reads', async () => {
+    const context = new RecordingContext();
+    context.byProvider = persistedFor();
+    const useCase = new ProcessWagerTransaction(
+      new QueueTransactionPort([context]),
+    );
+
+    const result = await useCase.execute(baseCommand);
+
+    expect(result.idempotentReplay).toBe(true);
+    expect(result.transactionId).toBe('0192f298-345e-7e38-af88-e43f851a819d');
+    expect(context.insertedWager).toBeUndefined();
+  });
+
+  it('keeps an initially visible provider transaction with another key as conflict', async () => {
+    const context = new RecordingContext();
+    context.byProvider = persistedFor({
+      ...baseCommand,
+      idempotencyKey: 'another-key',
+    });
+    const useCase = new ProcessWagerTransaction(
+      new QueueTransactionPort([context]),
+    );
+
+    await expect(useCase.execute(baseCommand)).rejects.toBeInstanceOf(
+      WagerTransactionConflictError,
+    );
+  });
+
   it('reloads the winner after a concurrent 23505 insert race', async () => {
     const reloaded = new RecordingContext();
     reloaded.byKey = persistedFor();

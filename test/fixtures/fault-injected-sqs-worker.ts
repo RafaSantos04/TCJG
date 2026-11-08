@@ -31,7 +31,9 @@ const consumer = new SqsWagerConsumer(
     AWS_SECRET_ACCESS_KEY: requiredEnvironment('AWS_SECRET_ACCESS_KEY'),
     SQS_QUEUE_NAME: requiredEnvironment('SQS_QUEUE_NAME'),
     SQS_DLQ_NAME: requiredEnvironment('SQS_DLQ_NAME'),
-    SQS_CONSUMER_NAME: 'phase-fourteen-fault-worker',
+    // A restarted process must keep the same logical consumer identity so the
+    // persistent inbox key (consumer_name, message_id) recognizes redelivery.
+    SQS_CONSUMER_NAME: requiredEnvironment('SQS_CONSUMER_NAME'),
     SQS_CONSUMER_ENABLED: false,
     SQS_WAIT_TIME_SECONDS: 1,
     SQS_MAX_NUMBER_OF_MESSAGES: 1,

@@ -201,6 +201,12 @@ export class ProcessWagerTransaction {
       candidate.externalTransactionId,
     );
     if (byProviderTransaction) {
+      if (
+        byProviderTransaction.transaction.idempotencyKey ===
+        candidate.idempotencyKey
+      ) {
+        return this.replay(candidate, byProviderTransaction);
+      }
       throw new WagerTransactionConflictError(
         candidate.providerId,
         candidate.externalTransactionId,

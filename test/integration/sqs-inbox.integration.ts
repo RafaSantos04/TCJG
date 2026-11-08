@@ -38,6 +38,7 @@ describe.sequential('SQS consumer and transactional inbox', () => {
   const schema = `phase_ten_${randomUUID().replaceAll('-', '')}`;
   const awsEndpoint = process.env.AWS_ENDPOINT_URL ?? 'http://127.0.0.1:4566';
   const awsRegion = process.env.AWS_REGION ?? 'us-east-1';
+  const consumerName = 'phase-fourteen-consumer';
   const credentials = {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'test',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'test',
@@ -171,6 +172,7 @@ describe.sequential('SQS consumer and transactional inbox', () => {
           AWS_SECRET_ACCESS_KEY: credentials.secretAccessKey,
           SQS_QUEUE_NAME: pair.queueName,
           SQS_DLQ_NAME: pair.dlqName,
+          SQS_CONSUMER_NAME: consumerName,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
@@ -444,7 +446,7 @@ describe.sequential('SQS consumer and transactional inbox', () => {
         AWS_SECRET_ACCESS_KEY: credentials.secretAccessKey,
         SQS_QUEUE_NAME: pair.queueName,
         SQS_DLQ_NAME: pair.dlqName,
-        SQS_CONSUMER_NAME: 'phase-ten-consumer',
+        SQS_CONSUMER_NAME: consumerName,
         SQS_CONSUMER_ENABLED: false,
         SQS_WAIT_TIME_SECONDS: 0,
         SQS_MAX_NUMBER_OF_MESSAGES: 10,

@@ -581,6 +581,18 @@ fecha a conexão da aplicação, abre uma nova e recebe a mesma mensagem após o
 visibility timeout. O inbox persistente transforma a redelivery em replay: não
 há novo débito, lançamento ou evento.
 
+O processo reiniciado conserva o mesmo `SQS_CONSUMER_NAME`. Essa identidade faz
+parte da chave persistente `(consumer_name, message_id)`; trocar o nome durante
+um restart representaria outro consumidor lógico e, corretamente, criaria uma
+segunda linha de inbox. O teste fixa o nome para reproduzir uma redelivery real
+do mesmo serviço.
+
+Na entrada HTTP, as consultas por chave idempotente e por identidade externa
+são duas instruções sob `READ COMMITTED`. Se o vencedor confirmar entre elas, a
+primeira ainda pode não enxergar a linha e a segunda já enxergá-la. Quando a
+linha encontrada possui a mesma chave, ela passa pela mesma validação de hash e
+é devolvida como replay; apenas outra chave continua sendo conflito `409`.
+
 A atomicidade usa PostgreSQL real e injeta uma falha antes do insert da outbox,
 quando inbox, wallet, wager e ledger já foram manipulados no contexto
 transacional. A exceção precisa deixar apenas a abertura anterior da wallet;
