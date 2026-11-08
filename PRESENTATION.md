@@ -117,6 +117,16 @@ réplicas seriam agregadas pelo Prometheus; LocalStack seria complementado por
 testes periódicos na AWS; secrets sairiam do `.env`; e alertas cobririam DLQ,
 outbox lag, divergência de reconciliação e conflitos anormais.
 
+### Como a IA foi utilizada?
+
+Como ferramenta de planejamento, implementação e revisão dentro de um fluxo
+orientado a especificação. Claude Opus 5.5 apoiou a orquestração e GPT-5.6 Sol a
+execução das etapas. As decisões, commits, testes reais na VM e aceite de cada
+fase permaneceram sob responsabilidade humana. Nenhum modelo participa do
+runtime ou das garantias financeiras. Evite dizer que “a IA fez o projeto”;
+explique como requisitos, diffs, testes e documentação limitaram e verificaram
+cada sugestão.
+
 ## Checklist do ensaio
 
 - Explicar cada um dos quatro fluxos em até dois minutos, sem ler o texto.

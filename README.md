@@ -312,6 +312,7 @@ lock da wallet. Por padrão, a décima tentativa sem referência encerra como
 bun run test:unit
 bun run test:integration
 bun run test:concurrency
+bun run test:load
 bun run typecheck
 bun run lint
 bun run test:e2e
@@ -350,6 +351,14 @@ bun run test:concurrency
 
 As URLs podem ser substituídas por `CONCURRENCY_API_URLS` e o banco por
 `TEST_DATABASE_URL`.
+
+O diferencial de carga é executado separadamente, depois que as suítes
+obrigatórias estiverem verdes. Consulte [LOAD_TEST.md](./LOAD_TEST.md) para a
+metodologia, configuração e interpretação do relatório:
+
+```bash
+bun run test:load
+```
 
 ## Migrations
 

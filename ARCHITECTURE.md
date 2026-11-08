@@ -655,6 +655,34 @@ observabilidade ou a falha deliberada, nunca PostgreSQL nem SQS.
   destinado somente à validação controlada; ativá-lo numa API normal encerra o
   processo após cada mensagem confirmada.
 
+## Processo de engenharia assistido por IA
+
+O desenvolvimento utilizou IA como ferramenta de engenharia, não como
+dependência da aplicação. O fluxo informado para esta entrega combinou Claude
+Opus 5.5 na organização/orquestração do trabalho e GPT-5.6 Sol na execução das
+etapas planejadas. Esses modelos não participam do runtime, não processam
+transações e não integram nenhuma garantia financeira.
+
+O método é descrito como desenvolvimento orientado a especificação
+(_Spec-Driven Development_, SDD) com _human-in-the-loop_, e não como
+desenvolvimento autônomo. O README original do desafio definiu as invariantes;
+os cards transformaram-nas em critérios verificáveis; código, decisões e testes
+foram confrontados com esses critérios; e o responsável humano aprovou
+interpretações, executou as suítes no ambiente real, analisou falhas e decidiu o
+fechamento de cada fase.
+
+Para manter rastreabilidade e responsabilidade técnica:
+
+- decisões relevantes foram registradas neste documento e nos cards;
+- mudanças foram revisadas por diff e validadas por testes, não aceitas apenas
+  porque um modelo as sugeriu;
+- PostgreSQL, LocalStack e múltiplas instâncias reais validaram as garantias que
+  não podem ser demonstradas por texto ou mocks;
+- credenciais, dados de produção e payloads sensíveis não fazem parte do fluxo
+  de assistência;
+- a autoria e a responsabilidade final permanecem humanas, inclusive a
+  capacidade de explicar, modificar e defender o código na apresentação.
+
 ## Próximas fases
 
 A entrega obrigatória termina com esta revisão. A Fase 16 contém apenas
