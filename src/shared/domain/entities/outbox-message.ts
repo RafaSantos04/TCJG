@@ -64,10 +64,10 @@ export class OutboxMessage {
       state.aggregateId,
       state.eventType,
       Object.freeze(state.payload),
-      new Date(state.occurredAt.getTime()),
+      state.occurredAt instanceof Date ? new Date(state.occurredAt.getTime()) : new Date(state.occurredAt),
       state.attempts,
-      state.nextAttemptAt,
-      state.publishedAt,
+      state.nextAttemptAt ? (state.nextAttemptAt instanceof Date ? new Date(state.nextAttemptAt.getTime()) : new Date(state.nextAttemptAt)) : undefined,
+      state.publishedAt ? (state.publishedAt instanceof Date ? new Date(state.publishedAt.getTime()) : new Date(state.publishedAt)) : undefined,
       state.lastError,
     );
   }
@@ -116,7 +116,7 @@ export class OutboxMessage {
     this.attemptsValue += 1;
     const exponential = Math.min(
       policy.maxDelayMs,
-      policy.baseDelayMs * 2 ** (this.attemptsValue - 1),
+      policy.baseDelayMs * (2 ** (this.attemptsValue - 1)),
     );
     const random = policy.random?.() ?? Math.random();
     const jitter = (random * 2 - 1) * policy.jitterRatio;
