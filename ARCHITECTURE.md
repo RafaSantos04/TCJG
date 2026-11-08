@@ -86,10 +86,11 @@ em vez de falhar somente durante uma requisição.
 
 ### MikroORM e PostgreSQL
 
-Escolhemos MikroORM porque ele oferece suporte explícito a Unit of Work,
-transações, lock pessimista e PostgreSQL sem exigir que aggregates e value
-objects recebam decorators. O `DatabaseModule` encapsula o ORM; entidades de
-persistência ficam na infraestrutura e mappers as convertem para o domínio
+O desafio aceita MikroORM ou TypeORM e indica MikroORM como opção preferencial.
+Dentro dessa escolha permitida, adotamos MikroORM pelo suporte explícito a Unit
+of Work, transações, lock pessimista e PostgreSQL, sem exigir que aggregates e
+value objects recebam decorators. O `DatabaseModule` encapsula o ORM; entidades
+de persistência ficam na infraestrutura e mappers as convertem para o domínio
 TypeScript puro. Isso preserva a direção das dependências e permite tratar
 `Money` como `bigint` no domínio e `numeric(20,2)`/`string` na persistência.
 
