@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 
 const moneySchema = z.strictObject({
   amount: z.string().regex(/^(0|[1-9]\d*)\.\d{2}$/),
