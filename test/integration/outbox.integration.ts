@@ -160,12 +160,14 @@ describe.sequential(
       expect((await service.runOnce()).published).toBe(1);
       const rowsAfterFirst = await orm.em
         .getConnection()
-        .execute<Array<{ id: string; published_at: Date | null }>>(
-          `select id, published_at from "${schema}".outbox_messages order by occurred_at, id`,
+        .execute<Array<{ id: string; published: boolean }>>(
+          `select id, published_at is not null as published
+           from "${schema}".outbox_messages
+           order by occurred_at, id`,
         );
       expect(rowsAfterFirst).toEqual([
-        { id: first.id, published_at: expect.any(Date) },
-        { id: second.id, published_at: null },
+        { id: first.id, published: true },
+        { id: second.id, published: false },
       ]);
 
       expect((await service.runOnce()).published).toBe(1);

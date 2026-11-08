@@ -56,7 +56,8 @@ export class MikroOrmOutboxRepository implements OutboxRepositoryPort {
            limit ?
          )
          update ${this.table} as message
-         set next_attempt_at = now() + (?::integer * interval '1 millisecond')
+         set next_attempt_at = date_trunc('milliseconds', now())
+             + (?::integer * interval '1 millisecond')
          from due
          where message.id = due.id
          returning message.*`,
