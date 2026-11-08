@@ -119,13 +119,13 @@ outbox lag, divergência de reconciliação e conflitos anormais.
 
 ### Como a IA foi utilizada?
 
-Como ferramenta de planejamento, implementação e revisão dentro de um fluxo
-orientado a especificação. Claude Opus 5.5 apoiou a orquestração e GPT-5.6 Sol a
-execução das etapas. As decisões, commits, testes reais na VM e aceite de cada
-fase permaneceram sob responsabilidade humana. Nenhum modelo participa do
-runtime ou das garantias financeiras. Evite dizer que “a IA fez o projeto”;
-explique como requisitos, diffs, testes e documentação limitaram e verificaram
-cada sugestão.
+IA generativa foi utilizada como ferramenta de planejamento, implementação e
+revisão dentro de um fluxo orientado a especificação. Claude Opus 5.5 apoiou a
+orquestração e GPT-5.6 Sol a execução das etapas. Cada sugestão foi confrontada
+com os requisitos do desafio, revisada por diff e validada por testes unitários,
+de integração, concorrência e carga. As decisões técnicas, os commits, a
+execução na VM e o aceite de cada fase permaneceram sob responsabilidade humana.
+Nenhum modelo participa do runtime ou das garantias financeiras.
 
 ## Checklist do ensaio
 
