@@ -3,6 +3,7 @@ import type {
   ReconciliationDivergence,
   ReconciliationObservabilityPort,
 } from '../../shared/application/ports/reconciliation-observability.port.js';
+import { MetricsService } from './metrics.service.js';
 
 @Injectable()
 export class NestReconciliationObservabilityAdapter implements ReconciliationObservabilityPort {
@@ -11,12 +12,15 @@ export class NestReconciliationObservabilityAdapter implements ReconciliationObs
   );
   private reconciliationDivergenceTotal = 0;
 
+  constructor(private readonly metrics: MetricsService) {}
+
   getReconciliationDivergenceTotal(): number {
     return this.reconciliationDivergenceTotal;
   }
 
   recordDivergence(divergence: ReconciliationDivergence): void {
     this.reconciliationDivergenceTotal += 1;
+    this.metrics.recordReconciliationDivergence();
     this.logger.warn({
       event: 'reconciliation_divergence',
       metric: 'reconciliation_divergence_total',

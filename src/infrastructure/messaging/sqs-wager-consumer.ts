@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  Optional,
   type OnApplicationBootstrap,
   type OnApplicationShutdown,
 } from '@nestjs/common';
@@ -15,7 +16,13 @@ import {
   SQSClient,
   type Message,
 } from '@aws-sdk/client-sqs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import { MetricsService } from '../observability/metrics.service.js';
+import {
+  observabilityContext,
+  type ObservabilityContext,
+} from '../observability/observability-context.js';
 import { TransientPersistenceError } from '../../shared/application/errors/persistence.error.js';
 import { IdempotencyConflictError } from '../../wagering/application/errors/idempotency-conflict.error.js';
 import { InboxPayloadConflictError } from '../../wagering/application/errors/inbox-payload-conflict.error.js';
@@ -40,6 +47,7 @@ export class SqsWagerConsumer
   constructor(
     private readonly processor: ProcessWagerMessage,
     private readonly config: ConfigService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {
     this.client = new SQSClient({
       region: config.getOrThrow<string>('AWS_REGION'),
@@ -128,32 +136,47 @@ export class SqsWagerConsumer
   }
 
   private async processMessage(message: Message): Promise<void> {
+    return observabilityContext.run(SqsWagerConsumer.contextFor(message), () =>
+      this.processMessageWithContext(message),
+    );
+  }
+
+  private async processMessageWithContext(message: Message): Promise<void> {
     if (!message.ReceiptHandle) {
       this.logger.error('SQS delivered a message without ReceiptHandle');
       return;
     }
 
+    const startedAt = performance.now();
     try {
       const result = await this.processor.execute(
         message.Body,
         this.config.getOrThrow<string>('SQS_CONSUMER_NAME'),
       );
+      const kind = SqsWagerConsumer.kindFor(message.Body);
+      if (result.transaction && kind) {
+        this.metrics?.recordWager(result.transaction.status, kind);
+      }
+      if (result.duplicate) this.metrics?.recordReplay('sqs');
       await this.client.send(
         new DeleteMessageCommand({
           QueueUrl: await this.getQueueUrl(false),
           ReceiptHandle: message.ReceiptHandle,
         }),
       );
-      this.logger.log(
-        JSON.stringify({
-          event: 'wager_message_acknowledged',
-          messageId: result.messageId,
-          duplicate: result.duplicate,
-          transactionId: result.transaction?.transactionId,
-        }),
-      );
+      this.logger.log({
+        event: 'wager_message_acknowledged',
+        messageId: result.messageId,
+        duplicate: result.duplicate,
+        transactionId: result.transaction?.transactionId,
+      });
     } catch (error) {
       await this.handleFailure(message, error);
+    } finally {
+      this.metrics?.observeWagerDuration(
+        'sqs',
+        (performance.now() - startedAt) / 1_000,
+      );
     }
   }
 
@@ -166,20 +189,20 @@ export class SqsWagerConsumer
       'SQS_MAX_RECEIVE_COUNT',
     );
 
-    this.logger.warn(
-      JSON.stringify({
-        event: 'wager_message_failed',
-        sqsMessageId: message.MessageId,
-        receiveCount,
-        kind,
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    );
+    this.logger.warn({
+      event: 'wager_message_failed',
+      sqsMessageId: message.MessageId,
+      receiveCount,
+      kind,
+      error: error instanceof Error ? error.message : String(error),
+    });
 
     if (receiveCount >= maxReceiveCount) {
       await this.deadLetter(message, kind, error);
       return;
     }
+
+    this.metrics?.recordSqsRetry();
 
     const base = this.config.getOrThrow<number>('SQS_RETRY_BASE_SECONDS');
     const maximum = this.config.getOrThrow<number>('SQS_RETRY_MAX_SECONDS');
@@ -220,6 +243,7 @@ export class SqsWagerConsumer
         },
       }),
     );
+    this.metrics?.recordSqsDlq();
     await this.client.send(
       new DeleteMessageCommand({
         QueueUrl: await this.getQueueUrl(false),
@@ -284,5 +308,54 @@ export class SqsWagerConsumer
     }
     if (error instanceof TransientPersistenceError) return 'transient';
     return 'transient';
+  }
+
+  private static contextFor(message: Message): ObservabilityContext {
+    const identifiers = this.identifiersFor(message.Body);
+    return {
+      correlationId: identifiers.messageId ?? message.MessageId ?? randomUUID(),
+      messageId: identifiers.messageId ?? message.MessageId,
+      walletId: identifiers.walletId,
+      providerId: identifiers.providerId,
+    };
+  }
+
+  private static kindFor(body: string | undefined): string | undefined {
+    return this.identifiersFor(body).kind;
+  }
+
+  private static identifiersFor(body: string | undefined): {
+    messageId?: string;
+    walletId?: string;
+    providerId?: string;
+    kind?: string;
+  } {
+    if (!body) return {};
+    try {
+      const parsed = JSON.parse(body) as {
+        messageId?: unknown;
+        data?: {
+          walletId?: unknown;
+          providerId?: unknown;
+          kind?: unknown;
+        };
+      };
+      return {
+        messageId:
+          typeof parsed.messageId === 'string' ? parsed.messageId : undefined,
+        walletId:
+          typeof parsed.data?.walletId === 'string'
+            ? parsed.data.walletId
+            : undefined,
+        providerId:
+          typeof parsed.data?.providerId === 'string'
+            ? parsed.data.providerId
+            : undefined,
+        kind:
+          typeof parsed.data?.kind === 'string' ? parsed.data.kind : undefined,
+      };
+    } catch {
+      return {};
+    }
   }
 }

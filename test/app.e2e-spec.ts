@@ -12,6 +12,7 @@ import { TransientPersistenceError } from './../src/shared/application/errors/pe
 import { CreateWallet } from './../src/wallet/application/create-wallet.js';
 import { IdempotencyConflictError } from './../src/wagering/application/errors/idempotency-conflict.error.js';
 import { ProcessWagerTransaction } from './../src/wagering/application/process-wager-transaction.js';
+import { SqsHealthIndicator } from './../src/infrastructure/health/sqs-health.indicator.js';
 
 @Module({})
 class TestDatabaseModule {}
@@ -78,6 +79,7 @@ describe('AppController (e2e)', () => {
     markPublished: vi.fn(async () => true),
     scheduleRetry: vi.fn(async () => true),
     getLagSeconds: vi.fn(async () => 0),
+    getPendingCount: vi.fn(async () => 0),
   };
   const pendingReferenceRepository = {
     claimBatch: vi.fn(async () => []),
@@ -124,6 +126,10 @@ describe('AppController (e2e)', () => {
       .useValue(outboxRepository)
       .overrideProvider(PENDING_REFERENCE_REPOSITORY_PORT)
       .useValue(pendingReferenceRepository)
+      .overrideProvider(SqsHealthIndicator)
+      .useValue({
+        check: vi.fn(async () => ({ sqs: { status: 'up' as const } })),
+      })
       .compile();
 
     app = moduleFixture.createNestApplication<NestNodeApplication>(
@@ -137,6 +143,41 @@ describe('AppController (e2e)', () => {
       .get('/')
       .expect(200)
       .expect({ name: 'tcjg', status: 'ok' });
+  });
+
+  it('exposes public liveness and returns the correlation id', async () => {
+    await request(app.getHttpServer())
+      .get('/health/live')
+      .set('X-Correlation-Id', 'correlation-health-test')
+      .expect('X-Correlation-Id', 'correlation-health-test')
+      .expect(200)
+      .expect({ status: 'ok' });
+  });
+
+  it('returns 503 readiness when PostgreSQL is unavailable', async () => {
+    await request(app.getHttpServer()).get('/health/ready').expect(503);
+  });
+
+  it('exposes all required Prometheus metric families', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/metrics')
+      .expect('Content-Type', /text\/plain/)
+      .expect(200);
+
+    for (const metric of [
+      'wager_transactions_total',
+      'idempotent_replays_total',
+      'idempotency_conflicts_total',
+      'sqs_retries_total',
+      'sqs_dlq_messages_total',
+      'lock_conflicts_total',
+      'outbox_lag_seconds',
+      'outbox_pending',
+      'wager_processing_duration_seconds',
+      'reconciliation_divergence_total',
+    ]) {
+      expect(response.text).toContain(`# HELP ${metric}`);
+    }
   });
 
   it('rejects a wagering request without an Idempotency-Key', async () => {

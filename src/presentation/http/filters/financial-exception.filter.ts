@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Injectable,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { InvalidLedgerCursorError } from '../../../shared/application/errors/invalid-ledger-cursor.error.js';
@@ -17,6 +18,7 @@ import { WagerTransactionConflictError } from '../../../wagering/application/err
 import { WagerTransactionNotFoundError } from '../../../wagering/application/errors/wager-transaction-not-found.error.js';
 import { WalletNotFoundError } from '../../../wagering/application/errors/wallet-not-found.error.js';
 import { WalletAlreadyExistsError } from '../../../wallet/application/errors/wallet-already-exists.error.js';
+import { MetricsService } from '../../../infrastructure/observability/metrics.service.js';
 
 type ErrorMapping = Readonly<{
   status: number;
@@ -29,9 +31,21 @@ type ErrorMapping = Readonly<{
 export class FinancialExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(FinancialExceptionFilter.name);
 
-  constructor(private readonly httpAdapterHost: HttpAdapterHost) {}
+  constructor(
+    private readonly httpAdapterHost: HttpAdapterHost,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
+    if (exception instanceof IdempotencyConflictError) {
+      this.metrics?.recordIdempotencyConflict();
+    }
+    if (
+      exception instanceof TransientPersistenceError &&
+      /lock|deadlock|serialization/i.test(exception.message)
+    ) {
+      this.metrics?.recordLockConflict();
+    }
     const mapping = FinancialExceptionFilter.map(exception);
     if (mapping.status === HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(

@@ -7,7 +7,10 @@ describe('NestReconciliationObservabilityAdapter', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
-    const adapter = new NestReconciliationObservabilityAdapter();
+    const metrics = { recordReconciliationDivergence: vi.fn() };
+    const adapter = new NestReconciliationObservabilityAdapter(
+      metrics as never,
+    );
     const divergence: ReconciliationDivergence = {
       result: {
         walletId: '0192f291-27dd-7d3f-8071-5f8685deef37',
@@ -24,6 +27,7 @@ describe('NestReconciliationObservabilityAdapter', () => {
     adapter.recordDivergence(divergence);
 
     expect(adapter.getReconciliationDivergenceTotal()).toBe(2);
+    expect(metrics.recordReconciliationDivergence).toHaveBeenCalledTimes(2);
     expect(warn).toHaveBeenLastCalledWith(
       expect.objectContaining({
         event: 'reconciliation_divergence',

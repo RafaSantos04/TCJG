@@ -170,6 +170,25 @@ identidade de provider; nesta etapa o adapter é propositalmente no-op, pronto
 para ser substituído por autenticação real sem alterar controllers e casos de
 uso.
 
+## Observabilidade e health
+
+Os logs são JSON via Pino. `X-Correlation-Id` é preservado quando enviado ou
+gerado como UUID, devolvido na resposta e propagado por `AsyncLocalStorage`.
+Operações financeiras acrescentam `providerId`, `walletId` e `transactionId`;
+o consumidor acrescenta também `messageId`. Payloads, headers sensíveis e
+objetos monetários completos são redigidos.
+
+```http
+GET /metrics
+GET /health/live
+GET /health/ready
+```
+
+`/metrics` expõe as famílias Prometheus de transações, idempotência, SQS,
+conflitos de banco, outbox, duração e reconciliação. Liveness verifica somente
+o processo; readiness executa o ping oficial do MikroORM e
+`GetQueueAttributes` no SQS. As três rotas são públicas.
+
 ## Transactional outbox
 
 Toda alteração financeira grava seus eventos na tabela `outbox_messages` dentro

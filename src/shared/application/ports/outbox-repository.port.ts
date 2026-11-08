@@ -12,4 +12,5 @@ export interface OutboxRepositoryPort {
   markPublished(id: string, leaseUntil: Date): Promise<boolean>;
   scheduleRetry(message: OutboxMessage, leaseUntil: Date): Promise<boolean>;
   getLagSeconds(): Promise<number>;
+  getPendingCount(): Promise<number>;
 }

@@ -1,10 +1,12 @@
 import type { ServerResponse } from 'node:http';
+import { performance } from 'node:perf_hooks';
 import {
   Body,
   Controller,
   Get,
   Headers,
   HttpCode,
+  Logger,
   Post,
   Param,
   Res,
@@ -14,6 +16,7 @@ import {
 import { ProcessWagerTransaction } from '../../wagering/application/process-wager-transaction.js';
 import { GetWagerTransaction } from '../../wagering/application/get-wager-transaction.js';
 import { WagerTransactionStatus } from '../../wagering/domain/value-objects/wager-transaction-status.js';
+import { MetricsService } from '../../infrastructure/observability/metrics.service.js';
 import {
   idempotencyKeySchema,
   processWagerTransactionRequestSchema,
@@ -27,9 +30,12 @@ const requestValidationPipe = new StandardSchemaValidationPipe({
 
 @Controller('wagering/transactions')
 export class WageringController {
+  private readonly logger = new Logger(WageringController.name);
+
   constructor(
     private readonly processWagerTransaction: ProcessWagerTransaction,
     private readonly getWagerTransaction: GetWagerTransaction,
+    private readonly metrics: MetricsService,
   ) {}
 
   @Get(':transactionId')
@@ -62,12 +68,31 @@ export class WageringController {
       );
     }
 
-    const result = await this.processWagerTransaction.execute({
-      ...request,
-      idempotencyKey: parsedIdempotencyKey.data,
-    });
-    response.statusCode =
-      result.status === WagerTransactionStatus.PENDING_REFERENCE ? 202 : 200;
-    return result;
+    const startedAt = performance.now();
+    try {
+      const result = await this.processWagerTransaction.execute({
+        ...request,
+        idempotencyKey: parsedIdempotencyKey.data,
+      });
+      this.metrics.recordWager(result.status, request.kind);
+      if (result.idempotentReplay) this.metrics.recordReplay('http');
+      this.logger.log({
+        event: 'wager_transaction_handled',
+        transactionId: result.transactionId,
+        walletId: request.walletId,
+        providerId: request.providerId,
+        status: result.status,
+        kind: request.kind,
+        idempotentReplay: result.idempotentReplay,
+      });
+      response.statusCode =
+        result.status === WagerTransactionStatus.PENDING_REFERENCE ? 202 : 200;
+      return result;
+    } finally {
+      this.metrics.observeWagerDuration(
+        'http',
+        (performance.now() - startedAt) / 1_000,
+      );
+    }
   }
 }

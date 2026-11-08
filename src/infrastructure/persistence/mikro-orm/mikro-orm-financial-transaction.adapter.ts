@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import {
   EntityManager,
   LockMode,
@@ -30,6 +30,7 @@ import { WalletEntity } from './entities/wallet.entity.js';
 import { WagerTransactionMapper } from './mappers/wager-transaction.mapper.js';
 import { WalletLedgerEntryMapper } from './mappers/wallet-ledger-entry.mapper.js';
 import { WalletMapper } from './mappers/wallet.mapper.js';
+import { MetricsService } from '../../observability/metrics.service.js';
 
 type DatabaseError = Readonly<{
   code?: string;
@@ -39,7 +40,10 @@ type DatabaseError = Readonly<{
 
 @Injectable()
 export class MikroOrmFinancialTransactionAdapter implements FinancialTransactionPort {
-  constructor(private readonly entityManager: EntityManager) {}
+  constructor(
+    private readonly entityManager: EntityManager,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   async run<T>(
     work: (context: FinancialTransactionContext) => Promise<T>,
@@ -66,6 +70,7 @@ export class MikroOrmFinancialTransactionAdapter implements FinancialTransaction
       );
     } catch (error) {
       if (error instanceof UniqueConstraintViolationException) {
+        this.metrics?.recordLockConflict();
         throw new UniqueConstraintPersistenceError(
           MikroOrmFinancialTransactionAdapter.databaseError(error).constraint,
         );
@@ -74,10 +79,12 @@ export class MikroOrmFinancialTransactionAdapter implements FinancialTransaction
       const databaseError =
         MikroOrmFinancialTransactionAdapter.databaseError(error);
       if (databaseError.code === '23505') {
+        this.metrics?.recordLockConflict();
         throw new UniqueConstraintPersistenceError(databaseError.constraint);
       }
 
       if (['40P01', '55P03', '57014'].includes(databaseError.code ?? '')) {
+        this.metrics?.recordLockConflict();
         throw new TransientPersistenceError(
           'The wallet is temporarily busy; retry the operation',
         );

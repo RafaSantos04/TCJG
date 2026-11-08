@@ -520,6 +520,41 @@ continuidade diretamente no PostgreSQL e já é compartilhado pela suíte de
 concorrência e pelos testes de integração. A consolidação em todos os cenários
 de falha permanece para a matriz da Fase 14.
 
+## Observabilidade, métricas e health
+
+O `nestjs-pino` substitui o logger do bootstrap e mantém uma linha JSON por
+evento. O middleware HTTP gera ou preserva `X-Correlation-Id`, e um interceptor
+global abre o `AsyncLocalStorage` que acompanha `correlationId`, `providerId`,
+`walletId` e, quando conhecido, `transactionId`. O consumer SQS abre a mesma
+fronteira por mensagem e acrescenta `messageId`. Assim, providers continuam
+singleton e o contexto acompanha apenas a cadeia assíncrona atual.
+
+O serializer HTTP registra método, URL, status e identificador, sem body nem
+headers completos. A configuração `redact` também cobre autorização, cookies,
+payloads e objetos monetários em qualquer log manual. Os eventos financeiros
+registram identificadores e decisões, nunca valores ou o payload integral.
+
+`MetricsService` possui um `Registry` Prometheus por processo. Counters são
+incrementados no ponto em que o fato ocorre: resposta financeira e replay no
+adapter de entrada, retry/DLQ no consumer, códigos PostgreSQL `23505`, `40P01`,
+`55P03` e `57014` no adapter transacional e divergência no adapter de
+reconciliação. O histograma mede o fluxo HTTP/SQS completo. Os gauges de outbox
+são atualizados no scrape por consultas reais ao PostgreSQL, evitando estado
+duplicado em memória. Cada réplica expõe suas métricas; a agregação entre
+réplicas pertence ao Prometheus.
+
+`GET /health/live` não consulta dependências e indica apenas que o processo
+responde. `GET /health/ready` usa `@nestjs/terminus`: o indicador oficial do
+MikroORM executa o ping no PostgreSQL e o indicador SQS faz
+`GetQueueAttributes` na fila de entrada com timeout de 1,5 segundo. Qualquer
+falha produz 503. Health e métricas usam `@Public`, permanecendo fora da futura
+autenticação real.
+
+Mantivemos `prom-client` nesta fase porque é a biblioteca explicitamente pedida
+pelo desafio, embora a versão instalada sinalize migração futura para
+`@prometheus-io/client`. Essa troca fica atrás de `MetricsService` e não afeta
+domínio nem casos de uso.
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.

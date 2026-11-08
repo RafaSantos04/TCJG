@@ -1,0 +1,18 @@
+export const FINANCIAL_REDACT_PATHS = [
+  'req.headers.authorization',
+  'req.headers.cookie',
+  'req.body',
+  'res.body',
+  'money',
+  'initialBalance',
+  'storedBalance',
+  'calculatedBalance',
+  'difference',
+  'payload',
+  '*.money',
+  '*.initialBalance',
+  '*.storedBalance',
+  '*.calculatedBalance',
+  '*.difference',
+  '*.payload',
+] as const;

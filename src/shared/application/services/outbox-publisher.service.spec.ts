@@ -49,6 +49,10 @@ class FakeRepository implements OutboxRepositoryPort {
   async getLagSeconds(): Promise<number> {
     return 3;
   }
+
+  async getPendingCount(): Promise<number> {
+    return this.claims.filter((claim) => !claim.message.publishedAt).length;
+  }
 }
 
 const config = new ConfigService({

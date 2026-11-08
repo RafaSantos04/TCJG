@@ -123,6 +123,18 @@ export class MikroOrmOutboxRepository implements OutboxRepositoryPort {
     return Number(row?.lag_seconds ?? 0);
   }
 
+  async getPendingCount(): Promise<number> {
+    const [row] = await this.entityManager
+      .fork()
+      .getConnection()
+      .execute<Array<{ pending: string }>>(
+        `select count(*)::text as pending
+         from ${this.table}
+         where published_at is null`,
+      );
+    return Number(row?.pending ?? 0);
+  }
+
   private toDomain(row: OutboxRow): OutboxMessage {
     return OutboxMessage.rehydrate({
       id: row.id,
