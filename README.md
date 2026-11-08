@@ -34,6 +34,28 @@ testes. Execute-o no host antes de `test:unit`, `test:integration` ou
 Copie `.env.example` para `.env` antes de executar a API fora do Docker. O
 arquivo `.env` não é versionado.
 
+### Validação a partir de um clone limpo
+
+```bash
+git clone https://github.com/RafaSantos04/TCJG.git
+cd TCJG
+bun install --frozen-lockfile
+cp .env.example .env
+docker compose up --build --scale api=3 -d
+bun run migration:up
+bun run test:unit
+bun run test:integration
+bun run test:concurrency
+bun run test:e2e
+bun run typecheck
+bun run lint
+bun run build
+```
+
+No PowerShell, use `Copy-Item .env.example .env` no lugar de `cp`. Os testes de
+integração e concorrência pressupõem PostgreSQL, LocalStack e as três APIs
+saudáveis. Ao terminar, execute `docker compose down --remove-orphans`.
+
 ## Executar todo o ambiente
 
 ```bash
@@ -129,6 +151,36 @@ Idempotency-Key: provider-a:transaction-123
 Repetir o segundo request com a mesma chave e payload devolve a resposta
 persistida com `idempotentReplay: true`. Reutilizar a chave com outro payload
 devolve `409`.
+
+Exemplo executável com `curl` (copie o `id` retornado pela primeira chamada):
+
+```bash
+curl --request POST http://localhost:3000/wallets \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "playerId":"0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1",
+    "initialBalance":{"amount":"100.00","currency":"BRL"}
+  }'
+
+export WALLET_ID='<id retornado>'
+
+curl --request POST http://localhost:3000/wagering/transactions \
+  --header 'Content-Type: application/json' \
+  --header 'Idempotency-Key: provider-a:transaction-123' \
+  --data "{
+    \"providerId\":\"provider-a\",
+    \"externalTransactionId\":\"transaction-123\",
+    \"playerId\":\"0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1\",
+    \"walletId\":\"${WALLET_ID}\",
+    \"roundId\":\"round-987\",
+    \"gameId\":\"fortune-chimp\",
+    \"kind\":\"BET\",
+    \"money\":{\"amount\":\"25.00\",\"currency\":\"BRL\"}
+  }"
+
+curl "http://localhost:3000/wallets/${WALLET_ID}"
+curl "http://localhost:3000/wallets/${WALLET_ID}/ledger?limit=50"
+```
 
 As consultas disponíveis são:
 
@@ -336,4 +388,5 @@ src/
 ```
 
 Leia [ARCHITECTURE.md](./ARCHITECTURE.md) para entender as regras entre as
-camadas e as decisões técnicas da fundação.
+camadas e as decisões técnicas da fundação. Para preparar a explicação do
+desafio, use o roteiro de [PRESENTATION.md](./PRESENTATION.md).

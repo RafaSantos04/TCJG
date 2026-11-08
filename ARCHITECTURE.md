@@ -86,14 +86,18 @@ em vez de falhar somente durante uma requisição.
 
 ### MikroORM e PostgreSQL
 
-O `DatabaseModule` encapsula a integração com o MikroORM. A aplicação usa
-configuração assíncrona para receber os valores já validados pelo
-`ConfigService`. Entidades de persistência serão criadas na infraestrutura e
-convertidas para objetos do domínio por mappers.
+Escolhemos MikroORM porque ele oferece suporte explícito a Unit of Work,
+transações, lock pessimista e PostgreSQL sem exigir que aggregates e value
+objects recebam decorators. O `DatabaseModule` encapsula o ORM; entidades de
+persistência ficam na infraestrutura e mappers as convertem para o domínio
+TypeScript puro. Isso preserva a direção das dependências e permite tratar
+`Money` como `bigint` no domínio e `numeric(20,2)`/`string` na persistência.
 
-O schema será alterado apenas por migrations versionadas e reversíveis. As
-tabelas financeiras serão introduzidas na fase de persistência, quando suas
-constraints puderem ser definidas junto às entidades.
+Cada comando financeiro entra por `em.transactional`. O entity manager
+transacional é encapsulado por `FinancialTransactionContext`, garantindo que
+wallet, wager, ledger, inbox e outbox usem a mesma conexão e o mesmo commit ou
+rollback. O schema muda somente por migrations versionadas e reversíveis;
+sincronização automática permanece desabilitada.
 
 ### Docker Compose
 
@@ -386,6 +390,16 @@ retornam `409`, ausências `404`, entrada inválida `422` e falhas transitórias
 `503` com `Retry-After`. Erros inesperados são registrados e devolvem mensagem
 genérica para não vazar detalhes internos.
 
+| HTTP  | Quando usar                                                          |
+| ----- | -------------------------------------------------------------------- |
+| `200` | Transação processada/rejeitada pelo negócio, replay ou consulta      |
+| `201` | Wallet criada                                                        |
+| `202` | Referência ainda ausente; processamento ficou pendente               |
+| `404` | Wallet ou transação solicitada não existe                            |
+| `409` | Chave reutilizada com outro payload ou identidade externa conflita   |
+| `422` | Payload, parâmetro ou regra de entrada inválida                      |
+| `503` | Banco/lock temporariamente indisponível; cliente pode tentar de novo |
+
 `ProviderAuthGuard` também é global, enquanto `GET /` é explicitamente público.
 O guard depende de `ProviderIdentityPort` e impede que a identidade autenticada
 opere com outro `providerId`. O adapter atual é no-op e deriva a identidade do
@@ -393,6 +407,13 @@ próprio request porque o desafio não define credencial ou protocolo de login.
 Não adotamos `@nestjs/authentication` nesta fase: o pacote cobre o ciclo completo
 de usuários, sessões e sign-in, maior que a fronteira solicitada. Uma integração
 real de JWT, API key ou mTLS substitui apenas o adapter da porta.
+
+Em produção, adotaríamos Keycloak ou Zitadel como IdP OIDC. O gateway receberia
+um access token JWT, validaria assinatura, `iss`, `aud` e expiração pela JWKS do
+IdP e mapearia o claim do provider para `ProviderIdentityPort`. O guard atual
+continuaria comparando a identidade autenticada com `providerId`; casos de uso,
+domínio e persistência não mudariam. Rotação de chaves, revogação, escopos e
+rate limiting ficariam na fronteira de identidade/API, nunca no aggregate.
 
 ## Transactional outbox e eventos de integração
 
@@ -611,7 +632,31 @@ observabilidade ou a falha deliberada, nunca PostgreSQL nem SQS.
 - Aggregates não recebem dependências do NestJS.
 - Mudanças de schema exigem migration com `up` e `down`.
 
+## Interpretações, trade-offs e limitações conhecidas
+
+- `LOSS` é um resultado auditável sem alteração financeira: persiste wager e
+  evento, mas não cria ledger nem `WalletBalanceChanged`.
+- `REJECTED` é resultado terminal de negócio e recebe commit/ack; falha técnica
+  transitória não é convertida em rejeição financeira.
+- `MessageGroupId = walletId` melhora ordenação no SQS, mas lock e constraints
+  do PostgreSQL continuam sendo a garantia de consistência.
+- Publishers e workers não usam lock global. `SKIP LOCKED` favorece escala
+  horizontal e pode alterar a ordem entre aggregates diferentes, o que não
+  viola nenhuma invariante por wallet.
+- A outbox oferece entrega pelo menos uma vez, não exatamente uma vez. O
+  consumidor precisa deduplicar pelo identificador persistente do evento.
+- Métricas são expostas por processo; a agregação das três réplicas pertence ao
+  Prometheus. LocalStack reproduz a API SQS usada, mas não substitui testes
+  periódicos contra a AWS real antes de produção.
+- O guard de autenticação atual é deliberadamente no-op porque o desafio não
+  fornece IdP ou credenciais. A porta deixa explícito o ponto de substituição,
+  mas o estado atual não deve ser tratado como autenticação de produção.
+- O teste de caos `FAULT_INJECT=after_commit` fica desabilitado por padrão e é
+  destinado somente à validação controlada; ativá-lo numa API normal encerra o
+  processo após cada mensagem confirmada.
+
 ## Próximas fases
 
-As próximas fases consolidam reconciliação, observabilidade e a matriz final de
-testes de falha e concorrência.
+A entrega obrigatória termina com esta revisão. A Fase 16 contém apenas
+diferenciais opcionais e não pode enfraquecer idempotência, outbox, inbox ou os
+testes de concorrência já aprovados.
