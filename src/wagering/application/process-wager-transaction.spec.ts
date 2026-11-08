@@ -352,6 +352,26 @@ describe('ProcessWagerTransaction', () => {
     expect(result.balance.amount).toBe('20.00');
   });
 
+  it('retries a temporarily invisible winner after a 23505 race', async () => {
+    const notVisibleYet = new RecordingContext();
+    const reloaded = new RecordingContext();
+    reloaded.byKey = persistedFor();
+    const useCase = new ProcessWagerTransaction(
+      new QueueTransactionPort([
+        new UniqueConstraintPersistenceError(
+          'wager_transactions_idempotency_key_unique',
+        ),
+        notVisibleYet,
+        reloaded,
+      ]),
+    );
+
+    const result = await useCase.execute(baseCommand);
+
+    expect(result.idempotentReplay).toBe(true);
+    expect(result.transactionId).toBe('0192f298-345e-7e38-af88-e43f851a819d');
+  });
+
   it('processes a REFUND of a processed BET as credit', async () => {
     const context = new RecordingContext();
     context.wallet = walletWith('20.00');

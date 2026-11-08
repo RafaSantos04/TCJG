@@ -312,6 +312,11 @@ canônico. Hash igual devolve `balance_after`, que preserva o saldo observado na
 primeira execução; hash diferente gera `409`. Se duas instâncias passam juntas
 pela leitura inicial, a constraint decide a corrida com `23505`: a transação
 perdedora faz rollback, abre uma nova transação e relê o resultado vencedor.
+Essa releitura admite até três tentativas curtas com backoff de 5 e 10 ms. O
+retry existe somente depois do `23505` e nunca reaplica o débito: ele apenas
+busca o recibo persistido. Isso absorve uma indisponibilidade transitória ou uma
+janela de visibilidade entre conexões sob rajadas multi-instância; se o vencedor
+continuar ausente, a resposta permanece `503` em vez de inventar um resultado.
 
 O `@nestjs/idempotency` foi avaliado, mas não é usado nesta operação financeira.
 O desafio exige que chave, `payload_hash`, resultado, `balance_after` e a

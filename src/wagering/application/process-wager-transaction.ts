@@ -513,30 +513,52 @@ export class ProcessWagerTransaction {
   private async resolveInsertRace(
     candidate: WagerTransaction,
   ): Promise<ProcessWagerTransactionResult> {
-    return this.transactions.run(async (context) => {
-      const byIdempotencyKey = await context.findWagerByIdempotencyKey(
-        candidate.idempotencyKey,
-      );
-      if (byIdempotencyKey) {
-        return this.replay(candidate, byIdempotencyKey);
+    const maxReloadAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxReloadAttempts; attempt += 1) {
+      try {
+        const result = await this.transactions.run(async (context) => {
+          const byIdempotencyKey = await context.findWagerByIdempotencyKey(
+            candidate.idempotencyKey,
+          );
+          if (byIdempotencyKey) {
+            return this.replay(candidate, byIdempotencyKey);
+          }
+
+          const byProviderTransaction =
+            await context.findWagerByProviderTransaction(
+              candidate.providerId,
+              candidate.externalTransactionId,
+            );
+          if (byProviderTransaction) {
+            throw new WagerTransactionConflictError(
+              candidate.providerId,
+              candidate.externalTransactionId,
+            );
+          }
+
+          return undefined;
+        });
+        if (result) return result;
+      } catch (error) {
+        if (
+          !(error instanceof TransientPersistenceError) ||
+          attempt === maxReloadAttempts
+        ) {
+          throw error;
+        }
       }
 
-      const byProviderTransaction =
-        await context.findWagerByProviderTransaction(
-          candidate.providerId,
-          candidate.externalTransactionId,
-        );
-      if (byProviderTransaction) {
-        throw new WagerTransactionConflictError(
-          candidate.providerId,
-          candidate.externalTransactionId,
+      if (attempt < maxReloadAttempts) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, 5 * 2 ** (attempt - 1)),
         );
       }
+    }
 
-      throw new TransientPersistenceError(
-        'The conflicting transaction could not be reloaded',
-      );
-    });
+    throw new TransientPersistenceError(
+      'The conflicting transaction could not be reloaded after 3 attempts',
+    );
   }
 
   private replay(

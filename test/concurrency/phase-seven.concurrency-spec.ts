@@ -224,7 +224,13 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
       ),
     );
 
-    expect(responses.every((response) => response.status === 200)).toBe(true);
+    const failures = responses
+      .map((response, index) => ({ index, ...response }))
+      .filter((response) => response.status !== 200);
+    expect(
+      failures,
+      `duplicate BET failures: ${JSON.stringify(failures)}`,
+    ).toEqual([]);
     expect(
       new Set(responses.map((response) => response.body.transactionId)).size,
     ).toBe(1);
