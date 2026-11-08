@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
+import type { Mock } from 'vitest';
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 import { Migrator } from '@mikro-orm/migrations';
 import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
@@ -17,6 +18,9 @@ import { ProcessWagerTransaction } from '../../src/wagering/application/process-
 import { GetWagerTransaction } from '../../src/wagering/application/get-wager-transaction.js';
 import { MikroOrmPendingReferenceRepository } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm-pending-reference.repository.js';
 import { ProcessPendingReferences } from '../../src/wagering/application/process-pending-references.js';
+import type { ReconciliationObservabilityPort } from '../../src/shared/application/ports/reconciliation-observability.port.js';
+import { ReconcileWallet } from '../../src/wallet/application/reconcile-wallet.js';
+import { expectWalletMatchesLedger } from '../helpers/financial-invariants.js';
 
 describe.sequential('financial application with PostgreSQL', () => {
   const schema = `phase_seven_${randomUUID().replaceAll('-', '')}`;
@@ -27,6 +31,10 @@ describe.sequential('financial application with PostgreSQL', () => {
   let listWalletLedger: ListWalletLedger;
   let getWager: GetWagerTransaction;
   let processPendingReferences: ProcessPendingReferences;
+  let reconcileWallet: ReconcileWallet;
+  let reconciliationRecordDivergence: Mock<
+    ReconciliationObservabilityPort['recordDivergence']
+  >;
 
   beforeAll(async () => {
     orm = await MikroORM.init({
@@ -68,6 +76,16 @@ describe.sequential('financial application with PostgreSQL', () => {
     getWallet = new GetWallet(queryAdapter);
     listWalletLedger = new ListWalletLedger(queryAdapter);
     getWager = new GetWagerTransaction(queryAdapter);
+    reconciliationRecordDivergence = vi.fn<
+      ReconciliationObservabilityPort['recordDivergence']
+    >();
+    const reconciliationObservability: ReconciliationObservabilityPort = {
+      recordDivergence: reconciliationRecordDivergence,
+    };
+    reconcileWallet = new ReconcileWallet(
+      queryAdapter,
+      reconciliationObservability,
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -227,6 +245,66 @@ describe.sequential('financial application with PostgreSQL', () => {
       ]).size,
     ).toBe(3);
     expect(secondPage.nextCursor).toBeNull();
+  });
+
+  it('reconciles a consistent wallet from a repeatable-read snapshot', async () => {
+    const wallet = await createWallet.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    await processWager.execute({
+      providerId: 'provider-reconciliation',
+      externalTransactionId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: randomUUID(),
+      gameId: 'reconciliation-game',
+      kind: 'BET',
+      money: { amount: '25.00', currency: 'BRL' },
+    });
+
+    await expectWalletMatchesLedger(orm.em.getConnection(), wallet.id, schema);
+    await expect(reconcileWallet.execute(wallet.id)).resolves.toEqual({
+      walletId: wallet.id,
+      storedBalance: { amount: '75.00', currency: 'BRL' },
+      calculatedBalance: { amount: '75.00', currency: 'BRL' },
+      difference: { amount: '0.00', currency: 'BRL' },
+      consistent: true,
+      checkedEntries: 2,
+    });
+  });
+
+  it('detects a forced stored-balance divergence without correcting it', async () => {
+    const wallet = await createWallet.execute({
+      playerId: randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    });
+    await orm.em
+      .getConnection()
+      .execute(
+        `update "${schema}".wallets set balance = '125.00' where id = ?`,
+        [wallet.id],
+      );
+
+    const result = await reconcileWallet.execute(wallet.id);
+
+    expect(result).toEqual({
+      walletId: wallet.id,
+      storedBalance: { amount: '125.00', currency: 'BRL' },
+      calculatedBalance: { amount: '100.00', currency: 'BRL' },
+      difference: { amount: '25.00', currency: 'BRL' },
+      consistent: false,
+      checkedEntries: 1,
+    });
+    expect(reconciliationRecordDivergence).toHaveBeenCalledOnce();
+    const [persisted] = await orm.em
+      .getConnection()
+      .execute<Array<{ balance: string }>>(
+        `select balance::text as balance from "${schema}".wallets where id = ?`,
+        [wallet.id],
+      );
+    expect(persisted?.balance).toBe('125.00');
   });
 
   it('resolves a ROLLBACK that arrived before its BET', async () => {

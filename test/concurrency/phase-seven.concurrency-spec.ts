@@ -5,6 +5,7 @@ import { Migrator } from '@mikro-orm/migrations';
 import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { Migration20261107160000InitialFinancialSchema } from '../../src/infrastructure/persistence/mikro-orm/migrations/Migration20261107160000InitialFinancialSchema.js';
 import { financialEntities } from '../../src/infrastructure/persistence/mikro-orm/mikro-orm.options.js';
+import { expectWalletMatchesLedger } from '../helpers/financial-invariants.js';
 
 type WalletResponse = Readonly<{
   id: string;
@@ -116,28 +117,6 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
     ...input,
   });
 
-  const expectWalletMatchesLedger = async (walletId: string): Promise<void> => {
-    const [row] = await orm.em
-      .getConnection()
-      .execute<Array<{ balance: string; ledger_balance: string }>>(
-        `select
-         w.balance::text as balance,
-         coalesce(sum(
-           case l.direction
-             when 'CREDIT' then l.amount
-             else -l.amount
-           end
-         ), 0)::text as ledger_balance
-       from wallets w
-       left join wallet_ledger_entries l on l.wallet_id = w.id
-       where w.id = ?
-       group by w.id`,
-        [walletId],
-      );
-
-    expect(row?.balance).toBe(row?.ledger_balance);
-  };
-
   it('returns 409 when player and currency already have a wallet', async () => {
     const walletRequest = {
       playerId: randomUUID(),
@@ -163,7 +142,7 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
       duplicate.status,
       `duplicate POST /wallets returned ${duplicate.status}: ${JSON.stringify(duplicate.body)}`,
     ).toBe(409);
-    await expectWalletMatchesLedger(first.body.id);
+    await expectWalletMatchesLedger(orm.em.getConnection(), first.body.id);
   });
 
   it('serializes two competing BETs without a lost update', async () => {
@@ -203,7 +182,7 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
       );
 
     expect(summary).toEqual({ balance: '20.00', debits: '1' });
-    await expectWalletMatchesLedger(wallet.id);
+    await expectWalletMatchesLedger(orm.em.getConnection(), wallet.id);
   });
 
   it('deduplicates the same BET sent 50 times in parallel', async () => {
@@ -251,7 +230,7 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
       );
 
     expect(summary).toEqual({ balance: '75.00', debits: '1' });
-    await expectWalletMatchesLedger(wallet.id);
+    await expectWalletMatchesLedger(orm.em.getConnection(), wallet.id);
   });
 
   it('processes distinct wallets in parallel', async () => {
@@ -274,7 +253,9 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
       'PROCESSED',
     ]);
     await Promise.all(
-      wallets.map((wallet) => expectWalletMatchesLedger(wallet.id)),
+      wallets.map((wallet) =>
+        expectWalletMatchesLedger(orm.em.getConnection(), wallet.id),
+      ),
     );
   });
 
@@ -309,7 +290,7 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
     expect(first.body.balance.amount).toBe('90.00');
     expect(replay.body.balance.amount).toBe('90.00');
     expect(replay.body.idempotentReplay).toBe(true);
-    await expectWalletMatchesLedger(wallet.id);
+    await expectWalletMatchesLedger(orm.em.getConnection(), wallet.id);
   });
 
   it('returns 409 when an idempotency key is reused with another payload', async () => {
@@ -334,6 +315,6 @@ describe.sequential('Phase 7 multi-instance financial concurrency', () => {
     );
 
     expect(conflict.status).toBe(409);
-    await expectWalletMatchesLedger(wallet.id);
+    await expectWalletMatchesLedger(orm.em.getConnection(), wallet.id);
   });
 });

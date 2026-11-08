@@ -137,12 +137,19 @@ GET /wallets/:walletId
 GET /wallets/:walletId/ledger?limit=50&cursor=<nextCursor>
 GET /wagering/transactions/:transactionId
 GET /providers/:providerId/wagering/transactions/:externalTransactionId
+POST /wallets/:walletId/reconciliation
 ```
 
 O ledger usa paginação por cursor, com `limit` padrão 50 e máximo 200. Use
 `nextCursor` exatamente como recebido; o valor codifica a sequência do último
 lançamento e não deve ser interpretado pelo cliente. Inserções posteriores não
 repetem itens já percorridos.
+
+A reconciliação reconstrói o saldo pela soma dos créditos menos débitos e
+também verifica o último `balance_after` e a continuidade da cadeia. A leitura
+usa um snapshot `REPEATABLE READ` com lock compartilhado na wallet. Divergências
+retornam `consistent: false`, geram o aviso estruturado e incrementam
+`reconciliation_divergence_total`; o endpoint nunca altera nem corrige dados.
 
 Erros HTTP possuem um único formato:
 

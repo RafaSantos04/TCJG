@@ -41,6 +41,32 @@ describe('AppController (e2e)', () => {
           }
         : undefined,
     ),
+    getWalletReconciliationSnapshot: vi.fn(async (id: string) =>
+      id === walletId
+        ? {
+            wallet: {
+              id: walletId,
+              playerId,
+              balance: { amount: '100.00', currency: 'BRL' },
+              version: 1,
+              createdAt: new Date('2026-11-07T18:00:00.000Z'),
+              updatedAt: new Date('2026-11-07T18:00:00.000Z'),
+            },
+            entries: [
+              {
+                sequence: '1',
+                walletId,
+                transactionId: '0192f298-345e-7e38-af88-e43f851a8100',
+                direction: 'CREDIT' as const,
+                money: { amount: '100.00', currency: 'BRL' },
+                balanceBefore: { amount: '0.00', currency: 'BRL' },
+                balanceAfter: { amount: '100.00', currency: 'BRL' },
+                createdAt: new Date('2026-11-07T18:00:00.000Z'),
+              },
+            ],
+          }
+        : undefined,
+    ),
     listWalletLedger: vi.fn(async () => []),
     findWagerById: vi.fn(async () => undefined),
     findWagerByProviderTransaction: vi.fn(async () => undefined),
@@ -239,6 +265,20 @@ describe('AppController (e2e)', () => {
         version: 1,
         createdAt: '2026-11-07T18:00:00.000Z',
         updatedAt: '2026-11-07T18:00:00.000Z',
+      });
+  });
+
+  it('reconciles a wallet through the HTTP API', async () => {
+    await request(app.getHttpServer())
+      .post(`/wallets/${walletId}/reconciliation`)
+      .expect(200)
+      .expect({
+        walletId,
+        storedBalance: { amount: '100.00', currency: 'BRL' },
+        calculatedBalance: { amount: '100.00', currency: 'BRL' },
+        difference: { amount: '0.00', currency: 'BRL' },
+        consistent: true,
+        checkedEntries: 1,
       });
   });
 

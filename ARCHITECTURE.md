@@ -491,6 +491,35 @@ Uma reversão que exigiria débito sem saldo usa
 Ambas são decisões de negócio terminais e auditáveis, mas têm semânticas
 operacionais diferentes.
 
+## Reconciliação financeira somente de leitura
+
+`POST /wallets/:walletId/reconciliation` abre uma transação
+`REPEATABLE READ`, aplica `FOR SHARE` na wallet e lê todos os seus lançamentos
+ordenados por `seq` no mesmo snapshot. O lock é local à wallet e compatível com
+outras reconciliações; uma escrita concorrente aguarda o término da auditoria.
+Isso evita combinar o saldo de um instante com o ledger de outro, sem recorrer
+a lock global.
+
+O caso de uso reconstrói o saldo com `Money` pela soma de créditos menos
+débitos. Além da igualdade com o saldo materializado, valida que o primeiro
+`balance_before` é zero, que cada `balance_before` coincide com o
+`balance_after` anterior, que o último `balance_after` coincide com a wallet e
+que todas as moedas são iguais. A diferença é `storedBalance -
+calculatedBalance`, podendo ser negativa e continuando serializada como decimal
+de duas casas.
+
+Reconciliação é diagnóstico, não reparo: não existe caminho de escrita nesse
+caso de uso. Uma divergência produz `consistent: false`, um `warn` estruturado
+com os motivos e incrementa o contador monotônico por processo
+`reconciliation_divergence_total`. O adapter de observabilidade isola esse
+detalhe para que a Fase 13 conecte o mesmo contador ao registry Prometheus sem
+acoplar a regra financeira à biblioteca de métricas.
+
+O helper `test/helpers/financial-invariants.ts` verifica soma, saldo final e
+continuidade diretamente no PostgreSQL e já é compartilhado pela suíte de
+concorrência e pelos testes de integração. A consolidação em todos os cenários
+de falha permanece para a matriz da Fase 14.
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.

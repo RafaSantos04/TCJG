@@ -33,6 +33,7 @@ describe('ListWalletLedger', () => {
         createdAt,
         updatedAt: createdAt,
       })),
+      getWalletReconciliationSnapshot: vi.fn(async () => undefined),
       listWalletLedger: vi.fn(async (_walletId, after, limit) =>
         entries
           .filter((item) => !after || BigInt(item.sequence) > BigInt(after))

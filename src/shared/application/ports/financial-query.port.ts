@@ -26,6 +26,11 @@ export type WalletLedgerEntryReadModel = Readonly<{
   createdAt: Date;
 }>;
 
+export type WalletReconciliationSnapshot = Readonly<{
+  wallet: WalletReadModel;
+  entries: readonly WalletLedgerEntryReadModel[];
+}>;
+
 export type WagerTransactionReadModel = Readonly<{
   id: string;
   providerId: string;
@@ -47,6 +52,9 @@ export type WagerTransactionReadModel = Readonly<{
 
 export interface FinancialQueryPort {
   findWallet(walletId: string): Promise<WalletReadModel | undefined>;
+  getWalletReconciliationSnapshot(
+    walletId: string,
+  ): Promise<WalletReconciliationSnapshot | undefined>;
   listWalletLedger(
     walletId: string,
     afterSequence: string | undefined,

@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import {
   ConnectionException,
   EntityManager,
+  IsolationLevel,
+  LockMode,
   QueryOrder,
 } from '@mikro-orm/core';
 import { TransientPersistenceError } from '../../../shared/application/errors/persistence.error.js';
@@ -9,6 +11,7 @@ import type {
   FinancialQueryPort,
   WagerTransactionReadModel,
   WalletLedgerEntryReadModel,
+  WalletReconciliationSnapshot,
   WalletReadModel,
 } from '../../../shared/application/ports/financial-query.port.js';
 import type { FailureCode } from '../../../wagering/domain/value-objects/failure-code.js';
@@ -21,7 +24,7 @@ import { WalletEntity } from './entities/wallet.entity.js';
 
 @Injectable()
 export class MikroOrmFinancialQueryAdapter implements FinancialQueryPort {
-  constructor(private readonly entityManager: EntityManager) { }
+  constructor(private readonly entityManager: EntityManager) {}
 
   async findWallet(walletId: string): Promise<WalletReadModel | undefined> {
     const em = this.entityManager.fork();
@@ -30,20 +33,40 @@ export class MikroOrmFinancialQueryAdapter implements FinancialQueryPort {
         id: walletId,
       });
 
-      return entity
-        ? Object.freeze({
-          id: entity.id,
-          playerId: entity.playerId,
-          balance: {
-            amount: entity.balance,
-            currency: entity.currency.trim(),
-          },
-          version: entity.version,
-          createdAt: entity.createdAt,
-          updatedAt: entity.updatedAt,
-        })
-        : undefined;
+      return entity ? this.toWallet(entity) : undefined;
     });
+  }
+
+  async getWalletReconciliationSnapshot(
+    walletId: string,
+  ): Promise<WalletReconciliationSnapshot | undefined> {
+    const em = this.entityManager.fork();
+    return this.query(() =>
+      em.transactional(
+        async (transactionalEntityManager) => {
+          const wallet = await transactionalEntityManager.findOne(
+            WalletEntity,
+            { id: walletId },
+            { lockMode: LockMode.PESSIMISTIC_READ },
+          );
+          if (!wallet) return undefined;
+
+          const entries = await transactionalEntityManager.find(
+            WalletLedgerEntryEntity,
+            { walletId },
+            { orderBy: { seq: QueryOrder.ASC } },
+          );
+
+          return Object.freeze({
+            wallet: this.toWallet(wallet),
+            entries: Object.freeze(
+              entries.map((entry) => this.toLedger(entry)),
+            ),
+          });
+        },
+        { isolationLevel: IsolationLevel.REPEATABLE_READ },
+      ),
+    );
   }
 
   async listWalletLedger(
@@ -62,27 +85,7 @@ export class MikroOrmFinancialQueryAdapter implements FinancialQueryPort {
         { orderBy: { seq: QueryOrder.ASC }, limit },
       );
 
-      return entities.map((entity) =>
-        Object.freeze({
-          sequence: entity.seq,
-          walletId: entity.walletId,
-          transactionId: entity.transactionId,
-          direction: entity.direction as WalletLedgerDirection,
-          money: {
-            amount: entity.amount,
-            currency: entity.currency.trim(),
-          },
-          balanceBefore: {
-            amount: entity.balanceBefore,
-            currency: entity.currency.trim(),
-          },
-          balanceAfter: {
-            amount: entity.balanceAfter,
-            currency: entity.currency.trim(),
-          },
-          createdAt: entity.createdAt,
-        }),
-      );
+      return entities.map((entity) => this.toLedger(entity));
     });
   }
 
@@ -147,11 +150,49 @@ export class MikroOrmFinancialQueryAdapter implements FinancialQueryPort {
         entity.balanceAfter === undefined
           ? undefined
           : {
-            amount: entity.balanceAfter,
-            currency: entity.currency.trim(),
-          },
+              amount: entity.balanceAfter,
+              currency: entity.currency.trim(),
+            },
       createdAt: entity.createdAt,
       processedAt: entity.processedAt,
+    });
+  }
+
+  private toWallet(entity: WalletEntity): WalletReadModel {
+    return Object.freeze({
+      id: entity.id,
+      playerId: entity.playerId,
+      balance: {
+        amount: entity.balance,
+        currency: entity.currency.trim(),
+      },
+      version: entity.version,
+      createdAt: entity.createdAt,
+      updatedAt: entity.updatedAt,
+    });
+  }
+
+  private toLedger(
+    entity: WalletLedgerEntryEntity,
+  ): WalletLedgerEntryReadModel {
+    return Object.freeze({
+      sequence: entity.seq,
+      walletId: entity.walletId,
+      transactionId: entity.transactionId,
+      direction: entity.direction as WalletLedgerDirection,
+      money: {
+        amount: entity.amount,
+        currency: entity.currency.trim(),
+      },
+      balanceBefore: {
+        amount: entity.balanceBefore,
+        currency: entity.currency.trim(),
+      },
+      balanceAfter: {
+        amount: entity.balanceAfter,
+        currency: entity.currency.trim(),
+      },
+      createdAt: entity.createdAt,
     });
   }
 }

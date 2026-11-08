@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   Post,
   Query,
@@ -10,6 +11,7 @@ import {
 import { CreateWallet } from '../../wallet/application/create-wallet.js';
 import { GetWallet } from '../../wallet/application/get-wallet.js';
 import { ListWalletLedger } from '../../wallet/application/list-wallet-ledger.js';
+import { ReconcileWallet } from '../../wallet/application/reconcile-wallet.js';
 import {
   createWalletRequestSchema,
   ledgerQuerySchema,
@@ -28,6 +30,7 @@ export class WalletController {
     private readonly createWallet: CreateWallet,
     private readonly getWallet: GetWallet,
     private readonly listWalletLedger: ListWalletLedger,
+    private readonly reconcileWallet: ReconcileWallet,
   ) {}
 
   @Post()
@@ -63,5 +66,17 @@ export class WalletController {
     query: LedgerQuery,
   ) {
     return this.listWalletLedger.execute({ walletId, ...query });
+  }
+
+  @Post(':walletId/reconciliation')
+  @HttpCode(200)
+  reconcile(
+    @Param('walletId', {
+      schema: uuidPathSchema,
+      pipes: [requestValidationPipe],
+    })
+    walletId: string,
+  ) {
+    return this.reconcileWallet.execute(walletId);
   }
 }
