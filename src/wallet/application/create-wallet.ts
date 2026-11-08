@@ -11,7 +11,11 @@ import {
   type FinancialTransactionPort,
 } from '../../shared/application/ports/financial-transaction.port.js';
 import { UniqueConstraintPersistenceError } from '../../shared/application/errors/persistence.error.js';
-import { createOutboxRecord } from '../../shared/application/services/outbox-record.factory.js';
+import { OutboxMessage } from '../../shared/domain/entities/outbox-message.js';
+import {
+  WagerTransactionProcessed,
+  WalletBalanceChanged,
+} from '../../shared/domain/events/financial-integration-events.js';
 import { Wallet } from '../domain/aggregates/wallet.js';
 import { WalletAlreadyExistsError } from './errors/wallet-already-exists.error.js';
 
@@ -82,40 +86,43 @@ export class CreateWallet {
         await context.insertWager(opening, wallet.balance);
         await context.insertLedgerEntry(ledgerEntry);
         await context.insertOutbox(
-          createOutboxRecord({
-            eventType: 'WagerTransactionProcessed',
-            aggregateId: opening.id,
-            correlationId: opening.id,
-            causationId: opening.idempotencyKey,
-            occurredAt: now,
-            data: {
-              transactionId: opening.id,
-              walletId,
-              providerId: opening.providerId,
-              externalTransactionId: opening.externalTransactionId,
-              kind: opening.kind,
-              money: opening.money.toJSON(),
-              balance: wallet.balance.toJSON(),
-            },
-          }),
+          OutboxMessage.enqueue(
+            WagerTransactionProcessed.create({
+              aggregateId: opening.id,
+              correlationId: opening.id,
+              causationId: opening.idempotencyKey,
+              occurredAt: now,
+              data: {
+                transactionId: opening.id,
+                walletId,
+                providerId: opening.providerId,
+                externalTransactionId: opening.externalTransactionId,
+                kind: opening.kind,
+                status: opening.status,
+                money: opening.money.toJSON(),
+                balance: wallet.balance.toJSON(),
+              },
+            }),
+          ),
         );
         await context.insertOutbox(
-          createOutboxRecord({
-            eventType: 'WalletBalanceChanged',
-            aggregateId: wallet.id,
-            correlationId: opening.id,
-            causationId: opening.id,
-            occurredAt: now,
-            data: {
-              walletId,
-              transactionId: opening.id,
-              direction: ledgerEntry.direction,
-              money: ledgerEntry.money.toJSON(),
-              balanceBefore: ledgerEntry.balanceBefore.toJSON(),
-              balanceAfter: ledgerEntry.balanceAfter.toJSON(),
-              version: wallet.version,
-            },
-          }),
+          OutboxMessage.enqueue(
+            WalletBalanceChanged.create({
+              aggregateId: wallet.id,
+              correlationId: opening.id,
+              causationId: opening.id,
+              occurredAt: now,
+              data: {
+                walletId,
+                transactionId: opening.id,
+                direction: ledgerEntry.direction,
+                money: ledgerEntry.money.toJSON(),
+                balanceBefore: ledgerEntry.balanceBefore.toJSON(),
+                balanceAfter: ledgerEntry.balanceAfter.toJSON(),
+                walletVersion: wallet.version,
+              },
+            }),
+          ),
         );
 
         return CreateWallet.toResult(wallet);

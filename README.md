@@ -12,6 +12,7 @@ de mensagens.
 - PostgreSQL 17
 - MikroORM 7 e migrations versionadas
 - LocalStack para emular SQS localmente
+- AWS SDK v3 para publicação dos eventos de integração
 - Vitest para testes unitários e E2E
 - Docker Compose para o ambiente integrado
 
@@ -162,6 +163,26 @@ identidade de provider; nesta etapa o adapter é propositalmente no-op, pronto
 para ser substituído por autenticação real sem alterar controllers e casos de
 uso.
 
+## Transactional outbox
+
+Toda alteração financeira grava seus eventos na tabela `outbox_messages` dentro
+da mesma transação PostgreSQL. Nenhuma requisição publica diretamente no SQS.
+Depois do commit, cada instância da API executa um publisher que reivindica até
+50 linhas com `FOR UPDATE SKIP LOCKED` e lease de 30 segundos.
+
+O publisher envia o envelope para `wallet-events.fifo` usando o `eventId` UUID
+v7 como `MessageDeduplicationId` e o `aggregateId` como `MessageGroupId`.
+Somente a confirmação do SQS preenche `published_at`. Falhas incrementam
+`attempts`, registram `last_error` e calculam novo `next_attempt_at` com backoff
+exponencial e jitter. As linhas nunca são apagadas.
+
+As opções `OUTBOX_*` do `.env.example` permitem reduzir poll, lease e retry nos
+testes. Em produção, todas as réplicas podem manter o worker ativo: o lease no
+banco distribui o trabalho e permite que outra instância assuma após um crash.
+`OutboxPublisherService.getLagSeconds()` fornece o valor de
+`outbox_lag_seconds`; a exportação pela solução de métricas pertence à fase de
+observabilidade.
+
 ## Qualidade
 
 ```bash
@@ -179,11 +200,13 @@ eles exercitam o bootstrap, o controller e o `NodeAdapter` sem exigir um
 PostgreSQL externo.
 
 Os testes de integração executam o Vitest explicitamente no runtime Bun e usam
-um PostgreSQL real. Além do teste básico de persistência com MikroORM, a suíte
+PostgreSQL e LocalStack reais. Além do teste básico de persistência com MikroORM, a suíte
 financeira cria um schema isolado, executa o ciclo `up/down/up` da migration e
 valida as constraints de unicidade, saldo, referências, reversões e ledger
-append-only. O schema de teste é removido ao concluir. Use `TEST_DATABASE_URL`
-para selecionar o banco.
+append-only. A suíte da outbox valida recuperação de lease abandonado, dois
+publishers concorrentes, indisponibilidade do SQS com retry e lag. O schema e a
+fila de teste são removidos ao concluir. Use `TEST_DATABASE_URL` para selecionar
+o banco e `AWS_ENDPOINT_URL` para selecionar o SQS.
 
 Os testes de concorrência usam PostgreSQL real e distribuem HTTP entre as três
 instâncias do Compose. Execute-os depois de reconstruir e subir a API:

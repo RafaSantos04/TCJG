@@ -4,6 +4,7 @@ import { GetApplicationStatus } from './application/system/get-application-statu
 import { environmentSchema } from './config/environment.schema.js';
 import { DatabaseModule } from './infrastructure/persistence/database.module.js';
 import { FinancialModule } from './financial.module.js';
+import { OutboxModule } from './outbox.module.js';
 import { AppController } from './presentation/http/app.controller.js';
 
 @Module({
@@ -15,6 +16,7 @@ import { AppController } from './presentation/http/app.controller.js';
     }),
     DatabaseModule,
     FinancialModule,
+    OutboxModule,
   ],
   controllers: [AppController],
   providers: [GetApplicationStatus],

@@ -15,6 +15,15 @@ services:
       AWS_ENDPOINT_URL: http://localstack:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      OUTBOX_QUEUE_NAME: wallet-events.fifo
+      OUTBOX_WORKER_ENABLED: 'true'
+      OUTBOX_POLL_INTERVAL_MS: 500
+      OUTBOX_LEASE_MS: 30000
+      OUTBOX_BATCH_SIZE: 50
+      OUTBOX_RETRY_BASE_MS: 1000
+      OUTBOX_RETRY_MAX_MS: 60000
+      OUTBOX_RETRY_JITTER: 0.2
+      OUTBOX_MAX_ATTEMPTS: 10
     ports:
       - '3000-3002:3000'
     depends_on:

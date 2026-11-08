@@ -2,9 +2,9 @@ import { UniqueConstraintPersistenceError } from '../../shared/application/error
 import type {
   FinancialTransactionContext,
   FinancialTransactionPort,
-  OutboxRecord,
   PersistedWagerTransaction,
 } from '../../shared/application/ports/financial-transaction.port.js';
+import type { OutboxMessage } from '../../shared/domain/entities/outbox-message.js';
 import type { Money } from '../../shared/domain/value-objects/money.js';
 import type { WagerTransaction } from '../../wagering/domain/entities/wager-transaction.js';
 import type { Wallet } from '../domain/aggregates/wallet.js';
@@ -17,7 +17,7 @@ class RecordingContext implements FinancialTransactionContext {
   wallet?: Wallet;
   wager?: WagerTransaction;
   ledger?: WalletLedgerEntry;
-  readonly outbox: OutboxRecord[] = [];
+  readonly outbox: OutboxMessage[] = [];
 
   async findWagerByIdempotencyKey(): Promise<
     PersistedWagerTransaction | undefined
@@ -57,9 +57,9 @@ class RecordingContext implements FinancialTransactionContext {
     this.ledger = entry;
   }
 
-  async insertOutbox(record: OutboxRecord): Promise<void> {
-    this.calls.push(`outbox:${record.eventType}`);
-    this.outbox.push(record);
+  async insertOutbox(message: OutboxMessage): Promise<void> {
+    this.calls.push(`outbox:${message.eventType}`);
+    this.outbox.push(message);
   }
 }
 

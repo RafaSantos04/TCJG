@@ -11,9 +11,9 @@ import {
 import type {
   FinancialTransactionContext,
   FinancialTransactionPort,
-  OutboxRecord,
   PersistedWagerTransaction,
 } from '../../../shared/application/ports/financial-transaction.port.js';
+import type { OutboxMessage } from '../../../shared/domain/entities/outbox-message.js';
 import { Money } from '../../../shared/domain/value-objects/money.js';
 import type { WagerTransaction } from '../../../wagering/domain/entities/wager-transaction.js';
 import type { Wallet } from '../../../wallet/domain/aggregates/wallet.js';
@@ -173,15 +173,15 @@ class MikroOrmFinancialTransactionContext implements FinancialTransactionContext
     );
   }
 
-  async insertOutbox(record: OutboxRecord): Promise<void> {
+  async insertOutbox(message: OutboxMessage): Promise<void> {
     const entity = new OutboxMessageEntity();
-    entity.id = record.id;
-    entity.aggregateId = record.aggregateId;
-    entity.eventType = record.eventType;
-    entity.payload = record.payload;
-    entity.occurredAt = record.occurredAt;
-    entity.attempts = 0;
-    entity.nextAttemptAt = record.occurredAt;
+    entity.id = message.id;
+    entity.aggregateId = message.aggregateId;
+    entity.eventType = message.eventType;
+    entity.payload = message.payload as Record<string, unknown>;
+    entity.occurredAt = message.occurredAt;
+    entity.attempts = message.attempts;
+    entity.nextAttemptAt = message.nextAttemptAt;
     await this.entityManager.insert(OutboxMessageEntity, entity);
   }
 

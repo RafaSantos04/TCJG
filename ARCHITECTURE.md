@@ -380,6 +380,39 @@ Não adotamos `@nestjs/authentication` nesta fase: o pacote cobre o ciclo comple
 de usuários, sessões e sign-in, maior que a fronteira solicitada. Uma integração
 real de JWT, API key ou mTLS substitui apenas o adapter da porta.
 
+## Transactional outbox e eventos de integração
+
+Os casos de uso criam subclasses de `IntegrationEvent<T>` em vez de informar o
+tipo por uma string no call site. Cada envelope recebe UUID v7, versão, contexto
+de correlação e apenas dados serializáveis; valores monetários entram como
+`{ amount, currency }`, nunca como instâncias de `Money`. `OutboxMessage.enqueue`
+transforma o evento no registro persistido pela mesma transação de wallet,
+wager e ledger.
+
+O pacote oficial `@nestjs/outbox` foi avaliado, porém administra schema,
+migrations e tabelas próprios. O desafio exige a tabela `outbox_messages`
+existente, seu índice e o algoritmo explícito de lease; manter o adapter local
+evita duas fontes de verdade e conserva o contrato avaliado.
+
+Cada réplica executa `OutboxWorker`. Uma única instrução PostgreSQL reivindica
+um lote, usando `FOR UPDATE SKIP LOCKED`, e move `next_attempt_at` para o fim do
+lease antes de confirmar a transação. Publicação e atualização de estado ficam
+em transações distintas por definição: sucesso no SQS marca `published_at`;
+falha incrementa `attempts` e agenda backoff exponencial com jitter. As duas
+atualizações exigem o valor exato do lease, servindo como fencing para impedir
+que um worker atrasado sobrescreva uma reivindicação mais nova.
+
+O SQS FIFO recebe `eventId` como `MessageDeduplicationId` e `aggregateId` como
+`MessageGroupId`. Ainda assim, a garantia é at-least-once: um crash depois do
+envio e antes de `published_at` pode republicar depois da janela do SQS. Por
+isso o inbox persistente do consumidor continua obrigatório na fase seguinte.
+Mensagens da outbox nunca são apagadas; atingir o limite de tentativas gera
+alerta e os retries continuam no intervalo máximo.
+
+O worker usa um loop assíncrono sem sobreposição, participa do shutdown do Nest
+e termina o lote em andamento antes de encerrar. `getLagSeconds` calcula a idade
+do evento pendente mais antigo para a futura métrica `outbox_lag_seconds`.
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.

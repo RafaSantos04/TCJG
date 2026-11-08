@@ -10,7 +10,12 @@ import {
   TransientPersistenceError,
   UniqueConstraintPersistenceError,
 } from '../../shared/application/errors/persistence.error.js';
-import { createOutboxRecord } from '../../shared/application/services/outbox-record.factory.js';
+import { OutboxMessage } from '../../shared/domain/entities/outbox-message.js';
+import {
+  WagerTransactionProcessed,
+  WagerTransactionRejected,
+  WalletBalanceChanged,
+} from '../../shared/domain/events/financial-integration-events.js';
 import {
   Money,
   type SerializedMoney,
@@ -125,12 +130,24 @@ export class ProcessWagerTransaction {
 
     if (wallet.playerId !== candidate.playerId) {
       candidate.reject(FailureCode.PLAYER_WALLET_MISMATCH);
-      return this.persistResult(context, candidate, wallet.balance, now);
+      return this.persistResult(
+        context,
+        candidate,
+        wallet.balance,
+        now,
+        wallet.version,
+      );
     }
 
     if (wallet.currency !== candidate.money.currency) {
       candidate.reject(FailureCode.CURRENCY_MISMATCH);
-      return this.persistResult(context, candidate, wallet.balance, now);
+      return this.persistResult(
+        context,
+        candidate,
+        wallet.balance,
+        now,
+        wallet.version,
+      );
     }
 
     const expectedVersion = wallet.version;
@@ -173,6 +190,7 @@ export class ProcessWagerTransaction {
       candidate,
       wallet.balance,
       now,
+      wallet.version,
       ledgerEntry,
     );
   }
@@ -182,53 +200,54 @@ export class ProcessWagerTransaction {
     transaction: WagerTransaction,
     balanceAfter: Money,
     now: Date,
+    walletVersion: number,
     ledgerEntry?: WalletLedgerEntry,
   ): Promise<ProcessWagerTransactionResult> {
     await context.insertWager(transaction, balanceAfter);
     if (ledgerEntry) {
       await context.insertLedgerEntry(ledgerEntry);
     }
-    const eventType = transaction.failureCode
-      ? 'WagerTransactionRejected'
-      : 'WagerTransactionProcessed';
-    await context.insertOutbox(
-      createOutboxRecord({
-        eventType,
-        aggregateId: transaction.id,
-        correlationId: transaction.id,
-        causationId: transaction.idempotencyKey,
-        occurredAt: now,
-        data: {
-          transactionId: transaction.id,
-          walletId: transaction.walletId,
-          providerId: transaction.providerId,
-          externalTransactionId: transaction.externalTransactionId,
-          kind: transaction.kind,
-          status: transaction.status,
-          failureCode: transaction.failureCode ?? null,
-          money: transaction.money.toJSON(),
-          balance: balanceAfter.toJSON(),
-        },
-      }),
-    );
+    const eventProps = {
+      aggregateId: transaction.id,
+      correlationId: transaction.id,
+      causationId: transaction.idempotencyKey,
+      occurredAt: now,
+      data: {
+        transactionId: transaction.id,
+        walletId: transaction.walletId,
+        providerId: transaction.providerId,
+        externalTransactionId: transaction.externalTransactionId,
+        kind: transaction.kind,
+        status: transaction.status,
+        failureCode: transaction.failureCode,
+        money: transaction.money.toJSON(),
+        balance: balanceAfter.toJSON(),
+      },
+    };
+    const transactionEvent = transaction.failureCode
+      ? WagerTransactionRejected.create(eventProps)
+      : WagerTransactionProcessed.create(eventProps);
+    await context.insertOutbox(OutboxMessage.enqueue(transactionEvent));
 
     if (ledgerEntry) {
       await context.insertOutbox(
-        createOutboxRecord({
-          eventType: 'WalletBalanceChanged',
-          aggregateId: transaction.walletId,
-          correlationId: transaction.id,
-          causationId: transaction.id,
-          occurredAt: now,
-          data: {
-            walletId: transaction.walletId,
-            transactionId: transaction.id,
-            direction: ledgerEntry.direction,
-            money: ledgerEntry.money.toJSON(),
-            balanceBefore: ledgerEntry.balanceBefore.toJSON(),
-            balanceAfter: ledgerEntry.balanceAfter.toJSON(),
-          },
-        }),
+        OutboxMessage.enqueue(
+          WalletBalanceChanged.create({
+            aggregateId: transaction.walletId,
+            correlationId: transaction.id,
+            causationId: transaction.id,
+            occurredAt: now,
+            data: {
+              walletId: transaction.walletId,
+              transactionId: transaction.id,
+              direction: ledgerEntry.direction,
+              money: ledgerEntry.money.toJSON(),
+              balanceBefore: ledgerEntry.balanceBefore.toJSON(),
+              balanceAfter: ledgerEntry.balanceAfter.toJSON(),
+              walletVersion,
+            },
+          }),
+        ),
       );
     }
 

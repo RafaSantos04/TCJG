@@ -42,6 +42,7 @@
     "infra:queues": "docker compose exec localstack awslocal sqs list-queues"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1164.0",
     "@mikro-orm/core": "^7.2.8",
     "@mikro-orm/decorators": "^7.2.8",
     "@mikro-orm/migrations": "^7.2.8",
@@ -53,6 +54,7 @@
     "@nestjs/platform-node": "^12.4.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "uuid": "^14.0.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {

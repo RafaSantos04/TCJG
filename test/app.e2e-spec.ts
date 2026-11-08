@@ -6,6 +6,7 @@ import { AppModule } from './../src/app.module.js';
 import { DatabaseModule } from './../src/infrastructure/persistence/database.module.js';
 import { FINANCIAL_TRANSACTION_PORT } from './../src/shared/application/ports/financial-transaction.port.js';
 import { FINANCIAL_QUERY_PORT } from './../src/shared/application/ports/financial-query.port.js';
+import { OUTBOX_REPOSITORY_PORT } from './../src/shared/application/ports/outbox-repository.port.js';
 import { TransientPersistenceError } from './../src/shared/application/errors/persistence.error.js';
 import { CreateWallet } from './../src/wallet/application/create-wallet.js';
 import { IdempotencyConflictError } from './../src/wagering/application/errors/idempotency-conflict.error.js';
@@ -45,6 +46,12 @@ describe('AppController (e2e)', () => {
   };
   const createWalletUseCase = { execute: vi.fn() };
   const processWagerUseCase = { execute: vi.fn() };
+  const outboxRepository = {
+    claimBatch: vi.fn(async () => []),
+    markPublished: vi.fn(async () => true),
+    scheduleRetry: vi.fn(async () => true),
+    getLagSeconds: vi.fn(async () => 0),
+  };
   const validWagerRequest = {
     providerId: 'provider-a',
     externalTransactionId: 'transaction-a',
@@ -83,6 +90,8 @@ describe('AppController (e2e)', () => {
       .useValue(createWalletUseCase)
       .overrideProvider(ProcessWagerTransaction)
       .useValue(processWagerUseCase)
+      .overrideProvider(OUTBOX_REPOSITORY_PORT)
+      .useValue(outboxRepository)
       .compile();
 
     app = moduleFixture.createNestApplication<NestNodeApplication>(
