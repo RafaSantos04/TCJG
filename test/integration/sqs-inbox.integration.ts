@@ -134,7 +134,7 @@ describe.sequential('SQS consumer and transactional inbox', () => {
     });
     const body = wagerBody(wallet.id, wallet.playerId, 'redelivery');
 
-    const first = await processor.execute(body, 'phase-ten-consumer');
+    const first = await processor.execute(body, consumerName);
     expect(first.duplicate).toBe(false);
 
     await send(pair.queueUrl, body, wallet.id);
@@ -249,7 +249,7 @@ describe.sequential('SQS consumer and transactional inbox', () => {
     await expect(
       failingProcessor.execute(
         wagerBody(wallet.id, wallet.playerId, 'atomicity'),
-        'phase-fourteen-consumer',
+        consumerName,
       ),
     ).rejects.toThrow('fault injected before outbox insert');
 
