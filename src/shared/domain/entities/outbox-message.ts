@@ -64,10 +64,10 @@ export class OutboxMessage {
       state.aggregateId,
       state.eventType,
       Object.freeze(state.payload),
-      state.occurredAt instanceof Date ? new Date(state.occurredAt.getTime()) : new Date(state.occurredAt),
-      state.attempts,
-      state.nextAttemptAt ? (state.nextAttemptAt instanceof Date ? new Date(state.nextAttemptAt.getTime()) : new Date(state.nextAttemptAt)) : undefined,
-      state.publishedAt ? (state.publishedAt instanceof Date ? new Date(state.publishedAt.getTime()) : new Date(state.publishedAt)) : undefined,
+      state.occurredAt ? new Date(state.occurredAt) : new Date(),
+      state.attempts ?? 0,
+      state.nextAttemptAt ? new Date(state.nextAttemptAt) : undefined,
+      state.publishedAt ? new Date(state.publishedAt) : undefined,
       state.lastError,
     );
   }
