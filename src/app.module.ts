@@ -6,6 +6,7 @@ import { DatabaseModule } from './infrastructure/persistence/database.module.js'
 import { FinancialModule } from './financial.module.js';
 import { OutboxModule } from './outbox.module.js';
 import { AppController } from './presentation/http/app.controller.js';
+import { WagerMessagingModule } from './wager-messaging.module.js';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { AppController } from './presentation/http/app.controller.js';
     DatabaseModule,
     FinancialModule,
     OutboxModule,
+    WagerMessagingModule,
   ],
   controllers: [AppController],
   providers: [GetApplicationStatus],

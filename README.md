@@ -183,6 +183,32 @@ banco distribui o trabalho e permite que outra instância assuma após um crash.
 `outbox_lag_seconds`; a exportação pela solução de métricas pertence à fase de
 observabilidade.
 
+## Consumidor SQS e inbox
+
+Cada réplica pode consumir `wager-transactions.fifo` com long polling em lotes
+de até 10 mensagens. O envelope `WagerTransactionRequested` é validado antes de
+abrir a transação e não aceita `OPENING`, campos extras, dinheiro sem duas casas
+ou identificadores inválidos.
+
+Para mensagens válidas, a chave `(consumer_name, message_id)` é inserida em
+`inbox_messages` com `ON CONFLICT DO NOTHING`. Inbox, wallet, wager, ledger e
+outbox usam o mesmo `FinancialTransactionContext`; `processed_at` é preenchido
+na mesma transação. O `DeleteMessage` só ocorre depois que ela confirma. Uma
+redelivery com o mesmo hash apenas recebe ack; a mesma chave com outro payload é
+tratada como mensagem permanente inválida.
+
+Falhas transitórias e permanentes permanecem sem ack e recebem visibility
+timeout exponencial até `SQS_MAX_RECEIVE_COUNT`. No limite, a mensagem é enviada
+para `wager-transactions-dlq.fifo` com a classificação da falha e só então é
+removida da fila principal. Resultados de negócio, inclusive `REJECTED` e replay
+financeiro, são terminais e recebem ack normalmente após o commit.
+
+No shutdown, o consumer cancela o long polling, termina as mensagens já
+iniciadas e devolve imediatamente a visibilidade das mensagens recebidas que
+ainda não começaram. As opções `SQS_*` de `.env.example` controlam filas,
+concorrência, visibility timeout e retry. O Compose habilita o consumer; o
+default do schema fica desabilitado para testes de bootstrap que não sobem SQS.
+
 ## Qualidade
 
 ```bash
@@ -205,8 +231,10 @@ financeira cria um schema isolado, executa o ciclo `up/down/up` da migration e
 valida as constraints de unicidade, saldo, referências, reversões e ledger
 append-only. A suíte da outbox valida recuperação de lease abandonado, dois
 publishers concorrentes, indisponibilidade do SQS com retry e lag. O schema e a
-fila de teste são removidos ao concluir. Use `TEST_DATABASE_URL` para selecionar
-o banco e `AWS_ENDPOINT_URL` para selecionar o SQS.
+fila de teste são removidos ao concluir. A suíte do consumer valida redelivery
+após commit antes do ack, retry transitório, poison message na DLQ e shutdown
+sem perda. Use `TEST_DATABASE_URL` para selecionar o banco e `AWS_ENDPOINT_URL`
+para selecionar o SQS.
 
 Os testes de concorrência usam PostgreSQL real e distribuem HTTP entre as três
 instâncias do Compose. Execute-os depois de reconstruir e subir a API:

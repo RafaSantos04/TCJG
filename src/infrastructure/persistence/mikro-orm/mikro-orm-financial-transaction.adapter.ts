@@ -4,6 +4,7 @@ import {
   LockMode,
   UniqueConstraintViolationException,
 } from '@mikro-orm/core';
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql';
 import {
   TransientPersistenceError,
   UniqueConstraintPersistenceError,
@@ -14,11 +15,13 @@ import type {
   PersistedWagerTransaction,
 } from '../../../shared/application/ports/financial-transaction.port.js';
 import type { OutboxMessage } from '../../../shared/domain/entities/outbox-message.js';
+import { InboxMessage } from '../../../shared/domain/entities/inbox-message.js';
 import { Money } from '../../../shared/domain/value-objects/money.js';
 import type { WagerTransaction } from '../../../wagering/domain/entities/wager-transaction.js';
 import type { Wallet } from '../../../wallet/domain/aggregates/wallet.js';
 import type { WalletLedgerEntry } from '../../../wallet/domain/entities/wallet-ledger-entry.js';
 import { OutboxMessageEntity } from './entities/outbox-message.entity.js';
+import { InboxMessageEntity } from './entities/inbox-message.entity.js';
 import { WagerTransactionEntity } from './entities/wager-transaction.entity.js';
 import { WalletEntity } from './entities/wallet.entity.js';
 import { WagerTransactionMapper } from './mappers/wager-transaction.mapper.js';
@@ -99,6 +102,62 @@ export class MikroOrmFinancialTransactionAdapter implements FinancialTransaction
 
 class MikroOrmFinancialTransactionContext implements FinancialTransactionContext {
   constructor(private readonly entityManager: EntityManager) {}
+
+  async insertInbox(message: InboxMessage): Promise<boolean> {
+    const rows = await (this.entityManager as PostgreSqlEntityManager)
+      .createQueryBuilder(InboxMessageEntity)
+      .insert({
+        consumerName: message.consumerName,
+        messageId: message.messageId,
+        payloadHash: message.payloadHash,
+        receivedAt: message.receivedAt,
+        processedAt: message.processedAt,
+      })
+      .onConflict(['consumerName', 'messageId'])
+      .ignore()
+      .returning('messageId')
+      .execute<Array<{ messageId: string }>>('all');
+
+    return rows.length === 1;
+  }
+
+  async lockInbox(
+    consumerName: string,
+    messageId: string,
+  ): Promise<InboxMessage | undefined> {
+    const entity = await this.entityManager.findOne(
+      InboxMessageEntity,
+      { consumerName, messageId },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    );
+
+    return entity
+      ? InboxMessage.rehydrate({
+          consumerName: entity.consumerName,
+          messageId: entity.messageId,
+          payloadHash: entity.payloadHash.trim(),
+          receivedAt: entity.receivedAt,
+          processedAt: entity.processedAt,
+        })
+      : undefined;
+  }
+
+  async updateInbox(message: InboxMessage): Promise<void> {
+    const updatedRows = await this.entityManager.nativeUpdate(
+      InboxMessageEntity,
+      {
+        consumerName: message.consumerName,
+        messageId: message.messageId,
+        payloadHash: message.payloadHash,
+      },
+      { processedAt: message.processedAt },
+    );
+    if (updatedRows !== 1) {
+      throw new TransientPersistenceError(
+        `Inbox message ${message.consumerName}/${message.messageId} was not updated`,
+      );
+    }
+  }
 
   async findWagerByIdempotencyKey(
     idempotencyKey: string,

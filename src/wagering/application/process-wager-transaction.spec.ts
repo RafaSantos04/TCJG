@@ -4,6 +4,7 @@ import type {
   PersistedWagerTransaction,
 } from '../../shared/application/ports/financial-transaction.port.js';
 import type { OutboxMessage } from '../../shared/domain/entities/outbox-message.js';
+import type { InboxMessage } from '../../shared/domain/entities/inbox-message.js';
 import { UniqueConstraintPersistenceError } from '../../shared/application/errors/persistence.error.js';
 import { Money } from '../../shared/domain/value-objects/money.js';
 import { Wallet } from '../../wallet/domain/aggregates/wallet.js';
@@ -64,6 +65,16 @@ class RecordingContext implements FinancialTransactionContext {
   insertedLedger?: WalletLedgerEntry;
   updatedWallet?: Wallet;
   readonly outbox: OutboxMessage[] = [];
+
+  async insertInbox(_message: InboxMessage): Promise<boolean> {
+    return true;
+  }
+
+  async lockInbox(): Promise<InboxMessage | undefined> {
+    return undefined;
+  }
+
+  async updateInbox(_message: InboxMessage): Promise<void> {}
 
   async findWagerByIdempotencyKey(): Promise<
     PersistedWagerTransaction | undefined

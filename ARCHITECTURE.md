@@ -413,6 +413,35 @@ O worker usa um loop assíncrono sem sobreposição, participa do shutdown do Ne
 e termina o lote em andamento antes de encerrar. `getLagSeconds` calcula a idade
 do evento pendente mais antigo para a futura métrica `outbox_lag_seconds`.
 
+## Consumidor at-least-once e inbox transacional
+
+O consumidor SQS é somente um adapter de entrada. Ele valida o envelope e chama
+`ProcessWagerMessage`, que abre uma transação pela mesma
+`FinancialTransactionPort` usada no HTTP. Dentro dela, o insert do inbox usa
+`ON CONFLICT DO NOTHING`; mensagens já existentes são relidas com lock. Se o
+hash divergir, a mensagem é inválida. Se `processed_at` já existir, o fluxo
+financeiro não roda novamente.
+
+Quando a mensagem é nova, `ProcessWagerTransaction` recebe o contexto já aberto.
+Assim, inbox, atualização da wallet, wager, ledger e outbox confirmam ou revertem
+juntos. O ack fica fora dessa fronteira e acontece somente após o retorno da
+transação. Um crash nesse intervalo produz redelivery, que encontra o inbox
+processado e não repete o efeito. A idempotência do inbox protege a entrega da
+mensagem; a chave e o hash de `wager_transactions` continuam protegendo a
+operação financeira. São garantias complementares, não caches concorrentes.
+
+Erros de schema, conflito de inbox ou conflito definitivo de idempotência são
+classificados como permanentes. Indisponibilidade, lock timeout e erros
+inesperados permanecem transitórios. Ambos respeitam visibility timeout com
+backoff e o limite configurado; no limite, o adapter publica na DLQ e só depois
+remove a mensagem original. O `MessageGroupId = walletId` reduz reordenação, mas
+o lock por wallet e as constraints do PostgreSQL continuam sendo a garantia.
+
+O consumer limita concorrência por instância, cancela o long polling no
+shutdown e espera trabalhos iniciados. Mensagens do lote ainda não iniciadas
+recebem `ChangeMessageVisibility(0)`, permitindo que outra réplica as assuma sem
+esperar o timeout normal.
+
 ## Convenções
 
 - Arquivos TypeScript usam nomes em `kebab-case`.

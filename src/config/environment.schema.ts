@@ -33,6 +33,35 @@ export const environmentSchema = z
     OUTBOX_RETRY_MAX_MS: z.coerce.number().int().positive().default(60_000),
     OUTBOX_RETRY_JITTER: z.coerce.number().min(0).max(1).default(0.2),
     OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
+    SQS_QUEUE_NAME: z.string().min(1).default('wager-transactions.fifo'),
+    SQS_DLQ_NAME: z.string().min(1).default('wager-transactions-dlq.fifo'),
+    SQS_CONSUMER_NAME: z.string().min(1).default('tcjg-wager-consumer'),
+    SQS_CONSUMER_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
+    SQS_WAIT_TIME_SECONDS: z.coerce.number().int().min(0).max(20).default(20),
+    SQS_MAX_NUMBER_OF_MESSAGES: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(10)
+      .default(10),
+    SQS_CONSUMER_CONCURRENCY: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(10)
+      .default(10),
+    SQS_VISIBILITY_TIMEOUT_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(43_200)
+      .default(30),
+    SQS_MAX_RECEIVE_COUNT: z.coerce.number().int().min(1).default(5),
+    SQS_RETRY_BASE_SECONDS: z.coerce.number().int().min(1).default(5),
+    SQS_RETRY_MAX_SECONDS: z.coerce.number().int().min(1).default(300),
   })
   .superRefine((environment, context) => {
     if (environment.DB_POOL_MIN > environment.DB_POOL_MAX) {
@@ -48,6 +77,16 @@ export const environmentSchema = z
         message:
           'OUTBOX_RETRY_MAX_MS must be greater than or equal to OUTBOX_RETRY_BASE_MS',
         path: ['OUTBOX_RETRY_MAX_MS'],
+      });
+    }
+    if (
+      environment.SQS_RETRY_BASE_SECONDS > environment.SQS_RETRY_MAX_SECONDS
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'SQS_RETRY_MAX_SECONDS must be greater than or equal to SQS_RETRY_BASE_SECONDS',
+        path: ['SQS_RETRY_MAX_SECONDS'],
       });
     }
   });
